@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LeadFlow AI — Intelligent Lead Distribution</title>
+  <meta name="description" content="AI-powered auto lead distribution platform for real estate businesses. Smart assignment, analytics, and executive management." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── Animated Background ─────────────── -->
+  <div class="bg-canvas" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <!-- ── Sidebar ──────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="9,22 9,12 15,12 15,22" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="logo-text-wrap">
+        <span class="logo-name">LeadFlow <span class="logo-ai">AI</span></span>
+        <span class="logo-version">v2.0 · Enterprise</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section-label">WORKSPACE</div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" id="nav-dashboard" onclick="showSection('dashboard'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Dashboard</span>
+        <span class="nav-badge" id="nav-badge-dashboard"></span>
+      </a>
+      <a href="#" class="nav-item" id="nav-leads" onclick="showSection('leads'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>All Leads</span>
+        <span class="nav-badge" id="nav-badge-leads"></span>
+      </a>
+      <a href="#" class="nav-item" id="nav-executives" onclick="showSection('executives'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Executives</span>
+        <span class="nav-badge" id="nav-badge-executives"></span>
+      </a>
+      <a href="#" class="nav-item" id="nav-analytics" onclick="showSection('analytics'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Analytics</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-section-label" style="margin-top:8px">TOOLS</div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item" id="nav-add-lead" onclick="showSection('add-lead'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Add Lead</span>
+      </a>
+      <a href="#" class="nav-item" id="nav-admin" onclick="showSection('admin'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Admin Panel</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="system-health">
+        <div class="health-dot"></div>
+        <div>
+          <div class="health-label">AI Engine Active</div>
+          <div class="health-sub" id="health-sub">Monitoring leads...</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ──────────────────────── -->
+  <main class="main-content">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title" id="page-title">Dashboard</h1>
+        <span class="page-crumb"><span class="crumb-icon">⚡</span> <span id="page-subtitle">Real-time lead intelligence</span></span>
+      </div>
+      <div class="topbar-right">
+        <div class="mode-pill" id="mode-pill" title="Distribution mode">
+          <span class="mode-dot"></span>
+          <span id="mode-label">Smart Mode</span>
+        </div>
+        <button class="icon-btn" id="btn-redistribute" onclick="redistributeAll()" title="Re-distribute unassigned leads">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="topbar-time" id="topbar-time"></div>
+      </div>
+    </header>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Dashboard
+    ════════════════════════════════════════ -->
+    <section id="section-dashboard" class="content-section active">
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <div class="grid-2-1" style="margin-top:20px;">
+        <!-- Left col -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <!-- Assignment Rate Donut -->
+          <div class="glass-card chart-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Assignment Rate</h3>
+                <p class="card-sub">Today's lead distribution</p>
+              </div>
+              <span class="chip chip-purple">Live</span>
+            </div>
+            <div class="donut-row">
+              <canvas id="chart-assignment" width="160" height="160"></canvas>
+              <div class="donut-legend" id="donut-legend-assignment"></div>
+            </div>
+          </div>
+
+          <!-- Temperature Donut -->
+          <div class="glass-card chart-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Lead Temperature</h3>
+                <p class="card-sub">Distribution breakdown</p>
+              </div>
+            </div>
+            <div class="donut-row">
+              <canvas id="chart-temp" width="160" height="160"></canvas>
+              <div class="donut-legend" id="donut-legend-temp"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right col: Executive Performance -->
+        <div class="glass-card" style="overflow:hidden;">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Executive Performance</h3>
+              <p class="card-sub">Daily capacity utilization</p>
+            </div>
+            <button class="chip chip-ghost" onclick="showSection('executives')">View All →</button>
+          </div>
+          <div id="exec-perf-list" style="padding:0 20px 20px;"></div>
+        </div>
+      </div>
+
+      <!-- Daily Trend -->
+      <div class="glass-card" style="margin-top:16px;">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">Lead Volume Trend</h3>
+            <p class="card-sub">Last 14 days</p>
+          </div>
+          <span class="chip chip-green">+38% vs last week</span>
+        </div>
+        <div style="padding:0 20px 20px;">
+          <canvas id="chart-trend" width="900" height="120" style="width:100%;height:120px;"></canvas>
+        </div>
+      </div>
+
+      <!-- Recent Leads -->
+      <div class="glass-card" style="margin-top:16px;">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">Recent Leads</h3>
+            <p class="card-sub">Latest 8 entries</p>
+          </div>
+          <button class="chip chip-ghost" onclick="showSection('leads')">View All →</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Lead</th><th>Score</th><th>Temp</th><th>Location</th><th>Budget</th><th>Assigned To</th><th>Status</th><th>Time</th>
+            </tr></thead>
+            <tbody id="recent-leads-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: All Leads
+    ════════════════════════════════════════ -->
+    <section id="section-leads" class="content-section">
+      <div class="toolbar">
+        <div class="filter-row">
+          <select id="filter-temp" onchange="renderLeadsTable()" class="select-input">
+            <option value="">All Temperatures</option>
+            <option value="hot">🔥 Hot</option>
+            <option value="warm">☀️ Warm</option>
+            <option value="cold">❄️ Cold</option>
+          </select>
+          <select id="filter-status" onchange="renderLeadsTable()" class="select-input">
+            <option value="">All Statuses</option>
+            <option value="assigned">Assigned</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+          <select id="filter-source" onchange="renderLeadsTable()" class="select-input">
+            <option value="">All Sources</option>
+          </select>
+          <select id="filter-exec" onchange="renderLeadsTable()" class="select-input">
+            <option value="">All Executives</option>
+          </select>
+        </div>
+        <div class="search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" id="search-leads" placeholder="Search name, phone, location…" oninput="renderLeadsTable()" class="search-input" />
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <div class="table-wrap">
+          <table class="data-table" id="all-leads-table">
+            <thead><tr>
+              <th>#</th><th>Lead</th><th>Score</th><th>Temp</th><th>Source</th>
+              <th>Location</th><th>Budget</th><th>Property</th>
+              <th>Assigned To</th><th>Status</th><th>Timestamp</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="all-leads-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Executives
+    ════════════════════════════════════════ -->
+    <section id="section-executives" class="content-section">
+      <div class="exec-grid" id="exec-grid"></div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Analytics
+    ════════════════════════════════════════ -->
+    <section id="section-analytics" class="content-section">
+      <div class="analytics-grid">
+        <!-- Source Performance -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">Leads by Source</h3><p class="card-sub">Conversion pipeline</p></div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <canvas id="chart-source-bar" width="400" height="240" style="width:100%;height:240px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Exec Bar Chart -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">Executive Load</h3><p class="card-sub">Leads assigned today</p></div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <canvas id="chart-exec-bar" width="400" height="240" style="width:100%;height:240px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Score Distribution -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">Priority Score Distribution</h3><p class="card-sub">Lead quality breakdown</p></div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <canvas id="chart-score-bar" width="400" height="240" style="width:100%;height:240px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Location Heatmap -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">Leads by Location</h3><p class="card-sub">Geographic distribution</p></div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <canvas id="chart-location-bar" width="400" height="240" style="width:100%;height:240px;"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary stats row -->
+      <div class="analytics-stats" id="analytics-stats"></div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Add Lead
+    ════════════════════════════════════════ -->
+    <section id="section-add-lead" class="content-section">
+      <div class="form-layout">
+        <!-- Form -->
+        <div class="form-main">
+          <div class="form-hero">
+            <div class="form-hero-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2.5"/><line x1="19" y1="8" x2="19" y2="14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="22" y1="11" x2="16" y2="11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+              <h2 class="form-hero-title">Add New Lead</h2>
+              <p class="form-hero-sub">AI engine will auto-score and assign to best executive</p>
+            </div>
+          </div>
+
+          <form id="lead-form" onsubmit="submitLead(event)" autocomplete="off">
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="f-name">Full Name *</label>
+                <input type="text" id="f-name" placeholder="e.g. Ravi Kumar" required oninput="updateScorePreview()" />
+              </div>
+              <div class="form-group">
+                <label for="f-phone">Phone Number *</label>
+                <input type="tel" id="f-phone" placeholder="+91 98765 43210" required oninput="updateScorePreview()" />
+                <div class="field-hint" id="dup-hint"></div>
+              </div>
+              <div class="form-group">
+                <label for="f-source">Lead Source *</label>
+                <select id="f-source" required onchange="updateScorePreview()">
+                  <option value="">Select source</option>
+                  <option value="99acres">99acres</option>
+                  <option value="MagicBricks">MagicBricks</option>
+                  <option value="Housing.com">Housing.com</option>
+                  <option value="Facebook Ads">Facebook Ads</option>
+                  <option value="Google Ads">Google Ads</option>
+                  <option value="Referral">Referral</option>
+                  <option value="Walk-in">Walk-in</option>
+                  <option value="Instagram">Instagram</option>
+                  <option value="NoBroker">NoBroker</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="f-location">Location Preference *</label>
+                <select id="f-location" required onchange="updateScorePreview()">
+                  <option value="">Select location</option>
+                  <option>Bandra</option><option>Andheri</option><option>Powai</option>
+                  <option>Thane</option><option>Navi Mumbai</option><option>Pune</option>
+                  <option>Whitefield</option><option>Electronic City</option>
+                  <option>HSR Layout</option><option>Gurgaon</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="f-budget">Budget Range *</label>
+                <select id="f-budget" required onchange="updateScorePreview()">
+                  <option value="">Select budget</option>
+                  <option value="< ₹30L">Under ₹30 Lakhs</option>
+                  <option value="₹30L–₹60L">₹30L – ₹60L</option>
+                  <option value="₹60L–₹1Cr">₹60L – ₹1 Crore</option>
+                  <option value="₹1Cr–₹2Cr">₹1Cr – ₹2 Crore</option>
+                  <option value="> ₹2Cr">Above ₹2 Crore</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="f-property">Property Type *</label>
+                <select id="f-property" required onchange="updateScorePreview()">
+                  <option value="">Select type</option>
+                  <option>1BHK Apartment</option><option>2BHK Apartment</option>
+                  <option>3BHK Apartment</option><option>4BHK+ Apartment</option>
+                  <option>Villa</option><option>Plot</option>
+                  <option>Commercial</option><option>Penthouse</option>
+                </select>
+              </div>
+              <div class="form-group full-col">
+                <label>Lead Temperature *</label>
+                <div class="temp-selector">
+                  <label class="temp-opt hot">
+                    <input type="radio" name="f-temp" value="hot" required onchange="updateScorePreview()" />
+                    <span class="temp-inner">
+                      <span class="temp-emoji">🔥</span>
+                      <span class="temp-name">Hot</span>
+                      <span class="temp-desc">Ready to buy now</span>
+                    </span>
+                  </label>
+                  <label class="temp-opt warm">
+                    <input type="radio" name="f-temp" value="warm" onchange="updateScorePreview()" />
+                    <span class="temp-inner">
+                      <span class="temp-emoji">☀️</span>
+                      <span class="temp-name">Warm</span>
+                      <span class="temp-desc">Considering options</span>
+                    </span>
+                  </label>
+                  <label class="temp-opt cold">
+                    <input type="radio" name="f-temp" value="cold" onchange="updateScorePreview()" />
+                    <span class="temp-inner">
+                      <span class="temp-emoji">❄️</span>
+                      <span class="temp-name">Cold</span>
+                      <span class="temp-desc">Just exploring</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" class="btn btn-ghost" onclick="clearForm()">Clear</button>
+              <button type="submit" class="btn btn-primary" id="submit-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Submit & Auto-Assign
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Score Preview Sidebar -->
+        <div class="score-sidebar">
+          <div class="glass-card score-card">
+            <h3 class="score-card-title">AI Priority Score</h3>
+            <div class="score-ring-wrap">
+              <canvas id="score-preview-canvas" width="140" height="140"></canvas>
+              <div class="score-ring-center" id="score-ring-center">—</div>
+            </div>
+            <div class="score-breakdown" id="score-breakdown">
+              <div class="score-row"><span>Temperature</span><span id="sc-temp">—</span></div>
+              <div class="score-row"><span>Budget</span><span id="sc-budget">—</span></div>
+              <div class="score-row"><span>Source</span><span id="sc-source">—</span></div>
+              <div class="score-row"><span>Property</span><span id="sc-property">—</span></div>
+            </div>
+            <div class="score-eligible" id="score-eligible">
+              <div class="eligible-label">Eligible Executives</div>
+              <div id="eligible-list" class="eligible-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Admin Panel
+    ════════════════════════════════════════ -->
+    <section id="section-admin" class="content-section">
+      <div class="admin-layout">
+
+        <!-- System Settings -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">System Settings</h3><p class="card-sub">AI engine configuration</p></div>
+          </div>
+          <div class="admin-settings" id="admin-settings">
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Distribution Mode</div>
+                <div class="setting-desc">How leads are assigned to executives</div>
+              </div>
+              <div class="mode-toggle">
+                <button class="mode-btn active" id="btn-smart" onclick="setDistributionMode('smart')">Smart</button>
+                <button class="mode-btn" id="btn-rr" onclick="setDistributionMode('round-robin')">Round-Robin</button>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Duplicate Detection</div>
+                <div class="setting-desc">Block duplicate leads by phone number</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-duplicates" checked onchange="APP_SETTINGS.allowDuplicates = !this.checked" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Auto Re-assign on Capacity</div>
+                <div class="setting-desc">Move leads when exec reaches full capacity</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="toggle-auto-reassign" onchange="APP_SETTINGS.autoReassignOnCapacity = this.checked" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <div class="setting-label">Reset Daily Counters</div>
+                <div class="setting-desc">Clear all exec lead counts for new day</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="resetDailyCounters()">Reset Now</button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Executive Management -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">Executive Management</h3><p class="card-sub">Toggle status and manage capacity</p></div>
+          </div>
+          <div id="admin-exec-list"></div>
+        </div>
+
+        <!-- System Health -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div><h3 class="card-title">System Health</h3><p class="card-sub">Engine metrics</p></div>
+          </div>
+          <div class="health-grid" id="health-grid"></div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════
+       EXECUTIVE SLIDE-OVER PANEL
+  ══════════════════════════════════════════ -->
+  <div class="overlay-backdrop" id="exec-overlay" onclick="closeExecPanel()"></div>
+  <div class="slide-panel" id="exec-panel">
+    <div class="slide-panel-header">
+      <div class="exec-panel-profile" id="exec-panel-profile"></div>
+      <button class="close-btn" onclick="closeExecPanel()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="slide-panel-body" id="exec-panel-body"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       REASSIGN MODAL
+  ══════════════════════════════════════════ -->
+  <div class="modal-overlay" id="reassign-overlay" onclick="closeReassignModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-hd">
+        <div class="modal-icon-wrap" style="background:rgba(251,191,36,0.15)">🔄</div>
+        <div>
+          <h3 class="modal-title">Reassign Lead</h3>
+          <p class="modal-sub" id="reassign-lead-name"></p>
+        </div>
+        <button class="close-btn" onclick="closeReassignModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-bd">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label>Select Executive</label>
+          <select id="reassign-exec-select" class="select-input" style="width:100%"></select>
+        </div>
+        <div class="form-group">
+          <label>Reason for Reassignment</label>
+          <input type="text" id="reassign-reason" class="text-input" placeholder="e.g. Executive on leave, better location match..." />
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button class="btn btn-ghost" onclick="closeReassignModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmReassign()">Confirm Reassign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       ASSIGNMENT RESULT MODAL
+  ══════════════════════════════════════════ -->
+  <div class="modal-overlay" id="result-overlay" onclick="closeResultModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-hd">
+        <div class="modal-icon-wrap" id="result-icon"></div>
+        <div>
+          <h3 class="modal-title" id="result-title"></h3>
+          <p class="modal-sub" id="result-sub"></p>
+        </div>
+        <button class="close-btn" onclick="closeResultModal()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-bd" id="result-body"></div>
+      <div class="modal-ft">
+        <button class="btn btn-primary" onclick="closeResultModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════
+       DUPLICATE WARNING MODAL
+  ══════════════════════════════════════════ -->
+  <div class="modal-overlay" id="dup-overlay">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-hd">
+        <div class="modal-icon-wrap" style="background:rgba(248,113,113,0.15)">⚠️</div>
+        <div>
+          <h3 class="modal-title">Duplicate Lead Detected</h3>
+          <p class="modal-sub">This lead already exists in the system</p>
+        </div>
+      </div>
+      <div class="modal-bd" id="dup-body"></div>
+      <div class="modal-ft">
+        <button class="btn btn-ghost" onclick="closeDupModal()">Cancel</button>
+        <button class="btn btn-danger" id="dup-override-btn">Submit Anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <div class="toast-icon" id="toast-icon"></div>
+    <div>
+      <div class="toast-title" id="toast-title"></div>
+      <div class="toast-body" id="toast-body"></div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
