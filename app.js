@@ -5,7 +5,7 @@
 
 'use strict';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = '/api';
 let token = localStorage.getItem('token') || null;
 let refreshToken = localStorage.getItem('refreshToken') || null;
 let currentUser = null;
@@ -26,6 +26,8 @@ const SOURCE_COLORS = [
   '#38b2ff','#c49bff','#ffaa3b','#81c784',
   '#ff6b9d','#00c9a7'
 ];
+
+const DAILY_TREND = [4, 7, 5, 9, 12, 8, 11, 15, 10, 14, 18, 13, 16, 22];
 
 // =============================================
 //  API CLIENT WRAPPER

@@ -18,10 +18,14 @@ const executivesRouter = require('./modules/executives/executives.router');
 const authRouter       = require('./modules/auth/auth.router');
 const errorHandler     = require('./middleware/errorHandler');
 
+const path        = require('path');
+
 const app = express();
 
 // ── Security headers ─────────────────────────
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
 
 // ── CORS ─────────────────────────────────────
 app.use(cors({
@@ -34,6 +38,9 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Serve frontend static files from the project root
+app.use(express.static(path.join(__dirname, '../../')));
 
 // ── Request logging ───────────────────────────
 if (process.env.NODE_ENV !== 'test') {
