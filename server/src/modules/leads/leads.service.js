@@ -5,7 +5,7 @@
 
 'use strict';
 
-const { query }    = require('../../config/db');
+const { query, transaction } = require('../../config/db');
 const { calcScore, detectDuplicate, assignLead } = require('../../services/assignment.service');
 
 // ─────────────────────────────────────────────
@@ -175,38 +175,64 @@ async function createLead(data, tenantId) {
 // ─────────────────────────────────────────────
 //  PATCH /api/leads/:id — update status/notes
 // ─────────────────────────────────────────────
-async function updateLead(leadId, tenantId, updates) {
-  const fields = [];
-  const params = [leadId, tenantId];
-  let p = 3;
+async function updateLead(leadId, tenantId, updates, changedById = null) {
+  return transaction(async (client) => {
+    // 1. Get original lead details to check current status
+    const { rows: originalRows } = await client.query(
+      'SELECT status FROM leads WHERE id = $1 AND tenant_id = $2',
+      [leadId, tenantId]
+    );
+    if (originalRows.length === 0) return null;
+    const oldStatus = originalRows[0].status;
 
-  if (updates.status !== undefined) {
-    fields.push(`status = $${p++}`);
-    params.push(updates.status);
+    // 2. Build and execute dynamic update
+    const fields = [];
+    const params = [leadId, tenantId];
+    let p = 3;
 
-    // Add history for status change
-    // (done in router for simplicity, or could be here)
-  }
-  if (updates.notes !== undefined) {
-    fields.push(`notes = $${p++}`);
-    params.push(updates.notes);
-  }
-  if (updates.temperature !== undefined) {
-    fields.push(`temperature = $${p++}`);
-    params.push(updates.temperature);
-  }
+    if (updates.status !== undefined) {
+      fields.push(`status = $${p++}`);
+      params.push(updates.status);
+    }
+    if (updates.notes !== undefined) {
+      fields.push(`notes = $${p++}`);
+      params.push(updates.notes);
+    }
+    if (updates.temperature !== undefined) {
+      fields.push(`temperature = $${p++}`);
+      params.push(updates.temperature);
+    }
 
-  if (fields.length === 0) return null;
+    if (fields.length === 0) return { id: leadId }; // No fields to update
 
-  const { rows } = await query(
-    `UPDATE leads
-     SET ${fields.join(', ')}, updated_at = NOW()
-     WHERE id = $1 AND tenant_id = $2
-     RETURNING *`,
-    params
-  );
+    const { rows } = await client.query(
+      `UPDATE leads
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING *`,
+      params
+    );
+    const updatedLead = rows[0];
 
-  return rows[0] || null;
+    // 3. Log history entry if status has changed
+    if (updates.status !== undefined && updates.status !== oldStatus) {
+      await client.query(
+        `INSERT INTO assignment_history (
+           lead_id, tenant_id, action, changed_by, reason, metadata
+         ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [
+          leadId,
+          tenantId,
+          'status_changed',
+          changedById,
+          `Status updated from "${oldStatus}" to "${updates.status}"`,
+          JSON.stringify({ old_status: oldStatus, new_status: updates.status })
+        ]
+      );
+    }
+
+    return updatedLead || null;
+  });
 }
 
 // ─────────────────────────────────────────────

@@ -376,6 +376,15 @@ async function runTests() {
     assert(r.body.lead?.status === 'contacted', `Expected status=contacted, got ${r.body.lead?.status}`);
   });
 
+  await test('Status update creates history entry with action=status_changed', async () => {
+    const r = await api('GET', `/api/leads/${newLeadId}/history`);
+    assert(r.status === 200, `Expected 200, got ${r.status}`);
+    const changed = r.body.history.find(h => h.action === 'status_changed');
+    assert(changed, 'No status_changed entry in history');
+    assert(changed.metadata.old_status === 'assigned', `Expected old_status = assigned, got ${changed.metadata.old_status}`);
+    assert(changed.metadata.new_status === 'contacted', `Expected new_status = contacted, got ${changed.metadata.new_status}`);
+  });
+
   await test('POST /api/leads/:id/reassign moves to different executive', async () => {
     const execsRes = await api('GET', '/api/executives');
     const leadRes  = await api('GET', `/api/leads/${newLeadId}`);

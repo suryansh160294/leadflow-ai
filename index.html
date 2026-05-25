@@ -76,6 +76,11 @@
         <span>All Leads</span>
         <span class="nav-badge" id="nav-badge-leads"></span>
       </a>
+      <a href="#" class="nav-item" id="nav-pipeline" onclick="showSection('pipeline'); return false;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="4" height="18" rx="1" stroke="currentColor" stroke-width="2"/><rect x="10" y="3" width="4" height="12" rx="1" stroke="currentColor" stroke-width="2"/><rect x="17" y="3" width="4" height="6" rx="1" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Pipeline</span>
+        <span class="nav-badge" id="nav-badge-pipeline"></span>
+      </a>
       <a href="#" class="nav-item" id="nav-executives" onclick="showSection('executives'); return false;">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         <span>Executives</span>
@@ -268,6 +273,13 @@
           </table>
         </div>
       </div>
+    </section>
+
+    <!-- ════════════════════════════════════════
+         SECTION: Pipeline (Kanban Board)
+    ════════════════════════════════════════ -->
+    <section id="section-pipeline" class="content-section">
+      <div class="pipeline-board" id="pipeline-board"></div>
     </section>
 
     <!-- ════════════════════════════════════════

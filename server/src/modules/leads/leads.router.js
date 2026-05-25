@@ -152,7 +152,7 @@ router.patch('/:id', validate(updateLeadSchema), async (req, res, next) => {
       return res.status(403).json({ error: 'Access Denied: You are not assigned to this lead' });
     }
 
-    const lead = await leadsService.updateLead(req.params.id, tenantId, req.validated);
+    const lead = await leadsService.updateLead(req.params.id, tenantId, req.validated, req.user.id);
     res.json({ message: 'Lead updated', lead });
   } catch (err) {
     next(err);

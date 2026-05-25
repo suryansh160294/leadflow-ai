@@ -1571,3 +1571,152 @@ body.logged-out .topbar {
   padding-left: 20px !important;
   padding-right: 20px !important;
 }
+
+/* ══════════════════════════════════════════════
+   PIPELINE KANBAN BOARD
+   ══════════════════════════════════════════════ */
+.pipeline-board {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  align-items: flex-start;
+  min-height: calc(100vh - 190px);
+}
+
+.pipeline-col {
+  flex: 0 0 300px;
+  width: 300px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+  transition: all 0.2s ease;
+  backdrop-filter: blur(12px);
+}
+
+.pipeline-col.drag-over {
+  border-color: var(--accent);
+  background: rgba(124, 109, 255, 0.04);
+  box-shadow: 0 0 15px rgba(124, 109, 255, 0.15);
+}
+
+.pipeline-col-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.pipeline-col-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-2);
+}
+
+.pipeline-col-count {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.06);
+  padding: 2px 7px;
+  border-radius: 20px;
+  color: var(--text-3);
+}
+
+.pipeline-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  flex-grow: 1;
+  min-height: 150px;
+  padding: 2px;
+}
+
+.pipeline-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-sm);
+  padding: 14px;
+  cursor: grab;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.pipeline-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(124, 109, 255, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.pipeline-card:active {
+  cursor: grabbing;
+}
+
+.pipeline-card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+
+.pipeline-card-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pipeline-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pipeline-card-exec {
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pipeline-card-exec-av {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  font-size: 7.5px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+}
+
+.pipeline-card-select {
+  font-size: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--glass-border);
+  color: var(--text-2);
+  border-radius: var(--r-xs);
+  padding: 2px 4px;
+  outline: none;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 90px;
+  transition: all 0.15s;
+}
+
+.pipeline-card-select:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-1);
+}

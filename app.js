@@ -927,6 +927,10 @@ function renderAll() {
 
   const analyticsVisible = document.getElementById('section-analytics')?.classList.contains('active');
   if (analyticsVisible) renderAnalytics();
+
+  const pipelineVisible = document.getElementById('section-pipeline')?.classList.contains('active');
+  if (pipelineVisible) renderPipeline();
+
   drawTrendChart();
   drawAssignmentDonut();
   drawTempDonut();
@@ -936,6 +940,7 @@ function updateNavBadges() {
   const total = leads.length;
   const active = executives.filter(e => e.active).length;
   const unassigned = leads.filter(l => l.status === 'unassigned').length;
+  const activePipeline = leads.filter(l => l.status !== 'closed' && l.status !== 'lost').length;
 
   const set = (id, val, show) => {
     const el = document.getElementById(id);
@@ -946,6 +951,7 @@ function updateNavBadges() {
 
   set('nav-badge-dashboard', total, total > 0);
   set('nav-badge-leads', unassigned, unassigned > 0);
+  set('nav-badge-pipeline', activePipeline, activePipeline > 0);
   set('nav-badge-executives', active, true);
 }
 
@@ -1510,6 +1516,7 @@ function showSection(name) {
   const titles = {
     dashboard:   ['Dashboard',     'Real-time lead intelligence'],
     leads:       ['All Leads',     'Browse, filter and manage leads'],
+    pipeline:    ['Pipeline',      'Track and manage leads across sales stages'],
     executives:  ['Executives',    'Team profiles — click a card to view details'],
     analytics:   ['Analytics',     'Performance insights and trends'],
     'add-lead':  ['Add Lead',      'AI-powered scoring and auto-assignment'],
@@ -1521,6 +1528,9 @@ function showSection(name) {
 
   if (name === 'analytics') {
     setTimeout(() => { renderAnalytics(); drawTrendChart(); }, 50);
+  }
+  if (name === 'pipeline') {
+    renderPipeline();
   }
   return false;
 }
@@ -1582,3 +1592,134 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// =============================================
+//  15. PIPELINE KANBAN BOARD
+// =============================================
+
+function renderPipeline() {
+  const board = document.getElementById('pipeline-board');
+  if (!board) return;
+
+  const stages = [
+    { status: 'unassigned', label: 'Unassigned' },
+    { status: 'assigned',   label: 'New (Assigned)' },
+    { status: 'contacted',  label: 'Contacted' },
+    { status: 'site_visit', label: 'Site Visit' },
+    { status: 'negotiation',label: 'Negotiation' },
+    { status: 'closed',     label: 'Won' },
+    { status: 'lost',       label: 'Lost' }
+  ];
+
+  board.innerHTML = stages.map(stage => {
+    const stageLeads = leads.filter(l => l.status === stage.status);
+    return `
+      <div class="pipeline-col" data-status="${stage.status}" ondragover="allowDrop(event)" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
+        <div class="pipeline-col-hd">
+          <span class="pipeline-col-title">${stage.label}</span>
+          <span class="pipeline-col-count" id="count-${stage.status}">${stageLeads.length}</span>
+        </div>
+        <div class="pipeline-cards">
+          ${stageLeads.map(lead => renderPipelineCard(lead, stages)).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderPipelineCard(l, stages) {
+  const selectOptions = stages.map(s => `
+    <option value="${s.status}" ${s.status === l.status ? 'selected' : ''}>
+      ${s.label}
+    </option>
+  `).join('');
+
+  const scoreClass = l.score >= 70 ? 'score-high' : l.score >= 40 ? 'score-med' : 'score-low';
+  const execInitials = l.assignedTo ? l.assignedTo.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '';
+
+  const execObj = executives.find(e => e.name === l.assignedTo);
+  const avatarClass = execObj ? execObj.avatarClass : 'av-0';
+
+  return `
+    <div class="pipeline-card" draggable="true" ondragstart="dragStart(event)" data-id="${l.id}">
+      <div class="pipeline-card-title">${escHtml(l.name)}</div>
+      <div class="pipeline-card-meta">
+        <span class="score-pill ${scoreClass}" style="padding: 1px 6px; font-size: 10px; border-radius: 4px;">${l.score}</span>
+        <span>${escHtml(l.location)}</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-2); margin-bottom: 8px;">Budget: ${escHtml(l.budget)}</div>
+      <div class="pipeline-card-footer">
+        <div class="pipeline-card-exec">
+          ${l.assignedTo ? `
+            <div class="pipeline-card-exec-av ${avatarClass}">${execInitials}</div>
+            <span>${escHtml(l.assignedTo.split(' ')[0])}</span>
+          ` : `
+            <span style="color: var(--text-3); font-style: italic;">Unassigned</span>
+          `}
+        </div>
+        <select class="pipeline-card-select" onchange="updateLeadStatus('${l.id}', this.value)">
+          ${selectOptions}
+        </select>
+      </div>
+    </div>
+  `;
+}
+
+// ── Drag & Drop Events ────────────────────────
+
+function dragStart(e) {
+  e.dataTransfer.setData('text/plain', e.currentTarget.getAttribute('data-id'));
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function allowDrop(e) {
+  e.preventDefault();
+}
+
+function dragEnter(e) {
+  e.preventDefault();
+  const col = e.currentTarget.closest('.pipeline-col');
+  if (col) col.classList.add('drag-over');
+}
+
+function dragLeave(e) {
+  const col = e.currentTarget.closest('.pipeline-col');
+  if (col) col.classList.remove('drag-over');
+}
+
+async function drop(e) {
+  e.preventDefault();
+  const col = e.currentTarget.closest('.pipeline-col');
+  if (!col) return;
+  col.classList.remove('drag-over');
+
+  const leadId = e.dataTransfer.getData('text/plain');
+  const newStatus = col.getAttribute('data-status');
+  if (!leadId || !newStatus) return;
+
+  const lead = leads.find(l => l.id === leadId);
+  if (lead && lead.status !== newStatus) {
+    await updateLeadStatus(leadId, newStatus);
+  }
+}
+
+async function updateLeadStatus(leadId, newStatus) {
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return;
+
+  // Optimistic UI update
+  const oldStatus = lead.status;
+  lead.status = newStatus;
+  renderPipeline();
+
+  try {
+    await apiCall('PATCH', `/leads/${leadId}`, { status: newStatus });
+    await loadInitialData();
+    showToast('📈 Status Updated', `${lead.name} -> ${newStatus}`, 'var(--accent-2)');
+  } catch (err) {
+    // Rollback
+    lead.status = oldStatus;
+    renderPipeline();
+    showToast('❌ Update Failed', err.message || 'Could not update status.', '#f87171');
+  }
+}
