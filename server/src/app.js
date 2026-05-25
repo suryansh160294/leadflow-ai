@@ -11,8 +11,11 @@ const helmet      = require('helmet');
 const morgan      = require('morgan');
 const rateLimit   = require('express-rate-limit');
 
+const cookieParser = require('cookie-parser');
+
 const leadsRouter      = require('./modules/leads/leads.router');
 const executivesRouter = require('./modules/executives/executives.router');
+const authRouter       = require('./modules/auth/auth.router');
 const errorHandler     = require('./middleware/errorHandler');
 
 const app = express();
@@ -30,6 +33,7 @@ app.use(cors({
 // ── Body parsing ─────────────────────────────
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ── Request logging ───────────────────────────
 if (process.env.NODE_ENV !== 'test') {
@@ -58,6 +62,7 @@ app.get('/health', (req, res) => {
 });
 
 // ── API Routes ────────────────────────────────
+app.use('/api/auth',       authRouter);
 app.use('/api/leads',      leadsRouter);
 app.use('/api/executives', executivesRouter);
 

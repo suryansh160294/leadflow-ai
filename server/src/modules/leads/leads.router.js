@@ -1,12 +1,13 @@
 // =============================================
 //  src/modules/leads/leads.router.js
-//  All lead routes — fully wired to service
+//  All lead routes — protected by JWT auth & RBAC
 // =============================================
 
 'use strict';
 
 const express  = require('express');
 const validate = require('../../middleware/validate');
+const { authenticate, requireRole } = require('../../middleware/auth');
 const {
   createLeadSchema,
   updateLeadSchema,
@@ -18,17 +19,8 @@ const { detectDuplicate, reassignLead } = require('../../services/assignment.ser
 
 const router = express.Router();
 
-// ── TEMP: hardcoded tenant until auth is added ─
-// In Phase 2, this will come from req.user.tenantId (JWT)
-const DEMO_TENANT_ID = process.env.DEMO_TENANT_ID || null;
-
-async function getTenantId(req) {
-  if (DEMO_TENANT_ID) return DEMO_TENANT_ID;
-  // Fall back: look up the single demo tenant
-  const { query } = require('../../config/db');
-  const { rows }  = await query("SELECT id FROM tenants WHERE slug = 'demo-agency' LIMIT 1");
-  return rows[0]?.id;
-}
+// Enforce authentication on all lead routes
+router.use(authenticate);
 
 // ─────────────────────────────────────────────
 //  GET /api/leads
@@ -37,10 +29,19 @@ async function getTenantId(req) {
 // ─────────────────────────────────────────────
 router.get('/', async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
-    const result   = await leadsService.getLeads(tenantId, req.query);
+    const tenantId = req.user.tenantId;
+    const filters  = { ...req.query };
+
+    // Security: Executives can only see leads assigned to themselves
+    if (req.user.role === 'executive') {
+      filters.exec_id = req.user.id;
+    }
+
+    const result = await leadsService.getLeads(tenantId, filters);
     res.json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -49,10 +50,16 @@ router.get('/', async (req, res, next) => {
 // ─────────────────────────────────────────────
 router.get('/stats', async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
-    const stats    = await leadsService.getStats(tenantId);
+    const tenantId = req.user.tenantId;
+    
+    // Security: Executives only get stats for their own leads
+    const execId = req.user.role === 'executive' ? req.user.id : null;
+    
+    const stats = await leadsService.getStats(tenantId, execId);
     res.json(stats);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -61,14 +68,16 @@ router.get('/stats', async (req, res, next) => {
 // ─────────────────────────────────────────────
 router.post('/check-dup', validate(checkDupSchema), async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
+    const tenantId = req.user.tenantId;
     const dup      = await detectDuplicate(req.validated, tenantId);
     res.json({
       isDuplicate: !!dup,
       type:         dup?.type  || null,
       existing:     dup?.lead  || null
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -77,7 +86,7 @@ router.post('/check-dup', validate(checkDupSchema), async (req, res, next) => {
 // ─────────────────────────────────────────────
 router.post('/', validate(createLeadSchema), async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
+    const tenantId = req.user.tenantId;
     const result   = await leadsService.createLead(req.validated, tenantId);
 
     // Duplicate blocked (and force=false)
@@ -96,7 +105,9 @@ router.post('/', validate(createLeadSchema), async (req, res, next) => {
       lead:           result.lead,
       scoreBreakdown: result.scoreBreakdown
     });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -105,11 +116,21 @@ router.post('/', validate(createLeadSchema), async (req, res, next) => {
 // ─────────────────────────────────────────────
 router.get('/:id', async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
+    const tenantId = req.user.tenantId;
     const lead     = await leadsService.getLeadById(req.params.id, tenantId);
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    // Security: Executives can only view their own leads
+    if (req.user.role === 'executive' && lead.assigned_to !== req.user.id) {
+      return res.status(403).json({ error: 'Access Denied: You are not assigned to this lead' });
+    }
+
     res.json(lead);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -118,21 +139,34 @@ router.get('/:id', async (req, res, next) => {
 // ─────────────────────────────────────────────
 router.patch('/:id', validate(updateLeadSchema), async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
-    const lead     = await leadsService.updateLead(req.params.id, tenantId, req.validated);
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const tenantId = req.user.tenantId;
+    
+    // First, verify existence and ownership of lead
+    const leadToCheck = await leadsService.getLeadById(req.params.id, tenantId);
+    if (!leadToCheck) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    // Security: Executives can only update their own leads
+    if (req.user.role === 'executive' && leadToCheck.assigned_to !== req.user.id) {
+      return res.status(403).json({ error: 'Access Denied: You are not assigned to this lead' });
+    }
+
+    const lead = await leadsService.updateLead(req.params.id, tenantId, req.validated);
     res.json({ message: 'Lead updated', lead });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
 //  POST /api/leads/:id/reassign
-//  Reassign to a different executive
+//  Reassign to a different executive (Admin only)
 // ─────────────────────────────────────────────
-router.post('/:id/reassign', validate(reassignLeadSchema), async (req, res, next) => {
+router.post('/:id/reassign', requireRole(['admin']), validate(reassignLeadSchema), async (req, res, next) => {
   try {
-    const tenantId  = await getTenantId(req);
-    const changedBy = null; // Will be req.user.id after auth
+    const tenantId  = req.user.tenantId;
+    const changedBy = req.user.id;
     const result    = await reassignLead(
       req.params.id,
       req.validated.exec_id,
@@ -142,7 +176,9 @@ router.post('/:id/reassign', validate(reassignLeadSchema), async (req, res, next
     );
     res.json({ message: 'Lead reassigned', ...result });
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -153,24 +189,38 @@ router.post('/:id/reassign', validate(reassignLeadSchema), async (req, res, next
 // ─────────────────────────────────────────────
 router.get('/:id/history', async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
+    const tenantId = req.user.tenantId;
     const lead     = await leadsService.getLeadById(req.params.id, tenantId);
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    // Security: Executives can only view their own lead's history
+    if (req.user.role === 'executive' && lead.assigned_to !== req.user.id) {
+      return res.status(403).json({ error: 'Access Denied: You are not assigned to this lead' });
+    }
+
     res.json({ history: lead.history });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────
 //  DELETE /api/leads/:id
-//  Soft delete — marks as 'lost'
+//  Soft delete — marks as 'lost' (Admin only)
 // ─────────────────────────────────────────────
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireRole(['admin']), async (req, res, next) => {
   try {
-    const tenantId = await getTenantId(req);
+    const tenantId = req.user.tenantId;
     const deleted  = await leadsService.deleteLead(req.params.id, tenantId);
-    if (!deleted) return res.status(404).json({ error: 'Lead not found' });
+    if (!deleted) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
     res.json({ message: 'Lead archived', id: deleted.id });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

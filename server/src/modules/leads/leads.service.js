@@ -226,7 +226,15 @@ async function deleteLead(leadId, tenantId) {
 // ─────────────────────────────────────────────
 //  GET /api/leads/stats — dashboard numbers
 // ─────────────────────────────────────────────
-async function getStats(tenantId) {
+async function getStats(tenantId, execId = null) {
+  const params = [tenantId];
+  let conditions = 'tenant_id = $1';
+  
+  if (execId) {
+    conditions += ' AND assigned_to = $2';
+    params.push(execId);
+  }
+
   const { rows } = await query(
     `SELECT
        COUNT(*)                                       AS total,
@@ -238,8 +246,8 @@ async function getStats(tenantId) {
        ROUND(AVG(priority_score))                    AS avg_score,
        COUNT(*) FILTER (WHERE is_duplicate = TRUE)   AS duplicates
      FROM leads
-     WHERE tenant_id = $1`,
-    [tenantId]
+     WHERE ${conditions}`,
+    params
   );
   return rows[0];
 }
