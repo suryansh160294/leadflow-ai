@@ -435,6 +435,10 @@ body {
 .badge-ok   { background: var(--green-bg); color: var(--green); }
 .badge-warn { background: var(--red-bg);   color: var(--red);   }
 .badge-dup  { background: var(--yellow-bg);color: var(--yellow);}
+.badge-info   { background: rgba(56,178,255,0.15); color: var(--cold); }
+.badge-purple { background: rgba(196,155,255,0.15); color: #c49bff; }
+.badge-yellow { background: rgba(251,191,36,0.15);  color: var(--yellow); }
+.badge-danger { background: rgba(248,113,113,0.15); color: var(--red); }
 
 /* ══════════════════════════════════════════════
    STATS GRID

@@ -264,7 +264,7 @@ async function getStats(tenantId, execId = null) {
   const { rows } = await query(
     `SELECT
        COUNT(*)                                       AS total,
-       COUNT(*) FILTER (WHERE status = 'assigned')   AS assigned,
+       COUNT(*) FILTER (WHERE status != 'unassigned') AS assigned,
        COUNT(*) FILTER (WHERE status = 'unassigned') AS unassigned,
        COUNT(*) FILTER (WHERE temperature = 'hot')   AS hot,
        COUNT(*) FILTER (WHERE temperature = 'warm')  AS warm,

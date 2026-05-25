@@ -826,7 +826,7 @@ function renderAdminPanel() {
 
   // System health stats (calculated locally from memory lists synced with DB)
   const total      = leads.length;
-  const assigned   = leads.filter(l => l.status === 'assigned').length;
+  const assigned   = leads.filter(l => l.status !== 'unassigned').length;
   const unassigned = leads.filter(l => l.status === 'unassigned').length;
   const activeExecs = executives.filter(e => e.active).length;
   const rate = total > 0 ? Math.round(assigned / total * 100) : 0;
@@ -957,7 +957,7 @@ function updateNavBadges() {
 
 function renderStats() {
   const total      = leads.length;
-  const assigned   = leads.filter(l => l.status === 'assigned').length;
+  const assigned   = leads.filter(l => l.status !== 'unassigned').length;
   const unassigned = leads.filter(l => l.status === 'unassigned').length;
   const hot  = leads.filter(l => l.temperature === 'hot').length;
   const warm = leads.filter(l => l.temperature === 'warm').length;
@@ -1486,9 +1486,17 @@ function tempBadge(temp) {
 }
 
 function statusBadge(s) {
-  return s === 'assigned'
-    ? `<span class="badge badge-ok">✓ Assigned</span>`
-    : `<span class="badge badge-warn">⚠ Unassigned</span>`;
+  const m = {
+    unassigned:  ['badge-warn',   '⚠ Unassigned'],
+    assigned:    ['badge-ok',     '✓ Assigned'],
+    contacted:   ['badge-info',   '📞 Contacted'],
+    site_visit:  ['badge-purple', '📅 Site Visit'],
+    negotiation: ['badge-yellow', '🤝 Negotiation'],
+    closed:      ['badge-ok',     '🎉 Won'],
+    lost:        ['badge-danger', '❌ Lost']
+  };
+  const [cls, label] = m[s] || ['badge-warn', s];
+  return `<span class="badge ${cls}">${label}</span>`;
 }
 
 function scorePill(score) {
