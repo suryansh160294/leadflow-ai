@@ -1,14 +1,23 @@
 // =============================================
 //  app.js — LeadFlow AI v2 Application Engine
-//  Priority Scoring · Duplicate Detection
-//  Round-Robin · History · Reassignment
-//  Canvas Charts · Admin Panel · Exec View
+//  API-Connected Version (Node.js + PostgreSQL)
 // =============================================
 
-// ── Runtime State ────────────────────────────
-let executives = JSON.parse(JSON.stringify(EXECUTIVES));
+'use strict';
+
+const API_BASE = 'http://localhost:3000/api';
+let token = localStorage.getItem('token') || null;
+let refreshToken = localStorage.getItem('refreshToken') || null;
+let currentUser = null;
+
+let executives = [];
 let leads = [];
-let leadCounter = 0;
+let APP_SETTINGS = {
+  distributionMode: 'smart',
+  allowDuplicates: true,
+  autoReassignOnCapacity: false
+};
+
 let pendingDupSubmit = null;   // holds form data during dup warning
 let activeReassignId = null;   // lead being reassigned
 
@@ -19,7 +28,111 @@ const SOURCE_COLORS = [
 ];
 
 // =============================================
-//  1. PRIORITY SCORING ENGINE
+//  API CLIENT WRAPPER
+// =============================================
+
+async function apiCall(method, path, body = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const options = {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  };
+
+  let res = await fetch(`${API_BASE}${path}`, options);
+  
+  if (res.status === 401 && token && path !== '/auth/login') {
+    // Attempt token refresh
+    try {
+      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: refreshToken || '' })
+      });
+      
+      if (refreshRes.status === 200) {
+        const refreshData = await refreshRes.json();
+        token = refreshData.accessToken;
+        refreshToken = refreshData.refreshToken;
+        localStorage.setItem('token', token);
+        localStorage.setItem('refreshToken', refreshToken);
+        
+        // Retry the original request
+        options.headers['Authorization'] = `Bearer ${token}`;
+        res = await fetch(`${API_BASE}${path}`, options);
+      } else {
+        handleLogout();
+        throw new Error('Session expired. Please log in again.');
+      }
+    } catch (err) {
+      handleLogout();
+      throw err;
+    }
+  }
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw { status: res.status, message: json.error || 'Request failed', body: json };
+  }
+  return json;
+}
+
+// ─────────────────────────────────────────────
+//  MAPPING UTILITIES (Database to Frontend Model)
+// ─────────────────────────────────────────────
+
+function mapLead(l) {
+  return {
+    id:           l.id,
+    name:         l.name,
+    phone:        l.phone,
+    source:       l.source,
+    location:     l.location,
+    budget:       l.budget,
+    propertyType: l.property_type,
+    temperature:  l.temperature,
+    score:        parseInt(l.priority_score) || 0,
+    timestamp:    new Date(l.created_at),
+    assignedTo:   l.assigned_exec_name || null,
+    assignedExecId: l.assigned_to || null,
+    status:       l.status,
+    assignmentReason: l.assignment_reason || '',
+    isDuplicate:  l.is_duplicate || false,
+    history:      (l.history || []).map(h => ({
+      action:    h.action,
+      from:      h.from_user_name || null,
+      to:        h.to_user_name || null,
+      reason:    h.reason,
+      timestamp: new Date(h.created_at)
+    }))
+  };
+}
+
+function mapExecutive(e) {
+  const index = e.email.charCodeAt(0) + e.email.charCodeAt(e.email.length - 1);
+  const avatarClass = `av-${index % 10}`;
+  return {
+    id:               e.id,
+    name:             e.name,
+    phone:            e.phone || '',
+    email:            e.email,
+    active:           e.active,
+    locations:        e.locations || [],
+    maxDailyCapacity: parseInt(e.max_daily_capacity) || 10,
+    currentLeads:     parseInt(e.today_count) || 0,
+    totalAllTime:     parseInt(e.total_assigned) || 0,
+    successRate:      parseInt(e.success_rate) || 70,
+    expertise:        e.expertise || [],
+    avatarClass
+  };
+}
+
+// =============================================
+//  1. PRIORITY SCORING ENGINE (Preview Only)
 // =============================================
 
 function calcScore(lead) {
@@ -38,126 +151,176 @@ function calcScore(lead) {
 
   const t = tempScore[lead.temperature]    || 0;
   const b = budgetScore[lead.budget]       || 0;
-  const s = sourceScore[lead.source]       || 5;
-  const p = propScore[lead.propertyType]   || 3;
+  const s = sourceScore[lead.source]       || 0;
+  const p = propScore[lead.propertyType]   || 0;
 
   return { total: Math.min(100, t + b + s + p), t, b, s, p };
 }
 
 // =============================================
-//  2. DUPLICATE DETECTION
+//  2. AUTH FLOW & LOGIN
 // =============================================
 
-function detectDuplicate(data, excludeId) {
-  // BUG FIX #1: excludeId prevents a lead from matching itself
-  // BUG FIX #2: guard against empty phone/name to avoid false positives
-  const normPhone = (data.phone || '').replace(/\D/g, '');
-  if (normPhone.length >= 7) {
-    const byPhone = leads.find(l => l.id !== excludeId && l.phone.replace(/\D/g, '') === normPhone);
-    if (byPhone) return { lead: byPhone, type: 'phone' };
+async function handleLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  try {
+    const data = await apiCall('POST', '/auth/login', { email, password });
+    token = data.accessToken;
+    refreshToken = data.refreshToken;
+    currentUser = data.user;
+
+    localStorage.setItem('token', token);
+    localStorage.setItem('refreshToken', refreshToken);
+
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.body.classList.remove('logged-out');
+
+    showToast('🔑 Welcome Back', `Logged in as ${currentUser.name}`, '#34d399');
+    
+    // Set UI roles and load
+    applyRoleRestrictions();
+    await loadInitialData();
+  } catch (err) {
+    showToast('❌ Login Failed', err.message || 'Invalid email or password', '#f87171');
+  }
+}
+
+async function handleLogout() {
+  try {
+    if (token) {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ refreshToken: refreshToken || '' })
+      });
+    }
+  } catch (err) {
+    console.error('Logout error:', err);
   }
 
-  const normName = (data.name || '').toLowerCase().replace(/\s+/g, '');
-  if (normName.length >= 3) {
-    const byName = leads.find(l => l.id !== excludeId && l.name.toLowerCase().replace(/\s+/g, '') === normName);
-    if (byName) return { lead: byName, type: 'name' };
+  token = null;
+  refreshToken = null;
+  currentUser = null;
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.body.classList.add('logged-out');
+}
+
+function applyRoleRestrictions() {
+  if (!currentUser) return;
+
+  // Show/Hide Admin Sidebar navigation link
+  const adminNav = document.getElementById('nav-admin');
+  if (adminNav) {
+    adminNav.style.display = currentUser.role === 'admin' ? 'flex' : 'none';
   }
 
-  return null;
+  // Update Topbar Profile Pill
+  document.getElementById('topbar-user-name').textContent = currentUser.name;
+  document.getElementById('topbar-user-role').textContent = currentUser.role;
+
+  // Smart Mode Toggle restriction
+  const redistributeBtn = document.getElementById('btn-redistribute');
+  if (redistributeBtn) {
+    redistributeBtn.style.display = currentUser.role === 'admin' ? 'block' : 'none';
+  }
 }
 
 // =============================================
-//  3. ASSIGNMENT ENGINE
+//  3. LOAD INITIAL DATA
 // =============================================
 
-function getEligible(lead) {
-  return executives.filter(exec => {
-    if (!exec.active) return false;
-    if (!exec.locations.includes(lead.location)) return false;
-    if (exec.currentLeads >= exec.maxDailyCapacity) return false;
-    return true;
-  });
+async function loadInitialData() {
+  if (!token) return;
+
+  try {
+    // 1. Get current tenant settings
+    const profile = await apiCall('GET', '/auth/me');
+    currentUser = profile;
+    
+    if (profile.tenantSettings) {
+      APP_SETTINGS.distributionMode = profile.tenantSettings.distributionMode || 'smart';
+      setDistributionModeUI(APP_SETTINGS.distributionMode);
+    }
+
+    // 2. Fetch executives
+    const execRes = await apiCall('GET', '/executives');
+    executives = execRes.executives.map(mapExecutive);
+
+    // 3. Fetch leads (retrieve last 100 for local rendering and client filters)
+    await fetchLeads();
+
+    renderAll();
+  } catch (err) {
+    console.error('Error loading initial data:', err);
+    showToast('❌ Data Load Failed', 'Could not sync dashboard data from database.', '#f87171');
+  }
 }
 
-function assignLead(lead) {
-  const eligible = getEligible(lead);
-  if (eligible.length === 0) {
-    lead.assignedTo    = null;
-    lead.assignedExecId = null;
-    lead.status        = 'unassigned';
-    lead.assignmentReason = 'No eligible executive (check location coverage, capacity, and active status).';
-    addHistory(lead, 'unassigned', null, null, lead.assignmentReason);
-    return;
+async function fetchLeads() {
+  try {
+    const tf  = document.getElementById('filter-temp')?.value   || '';
+    const sf  = document.getElementById('filter-status')?.value || '';
+    const srcF= document.getElementById('filter-source')?.value || '';
+    const exF = document.getElementById('filter-exec')?.value   || '';
+    const q   = document.getElementById('search-leads')?.value   || '';
+
+    const queryParams = new URLSearchParams();
+    queryParams.append('limit', '100');
+    if (tf) queryParams.append('temperature', tf);
+    if (sf) queryParams.append('status', sf);
+    if (srcF) queryParams.append('source', srcF);
+    if (exF) queryParams.append('exec_id', exF);
+    if (q) queryParams.append('q', q);
+
+    const data = await apiCall('GET', `/leads?${queryParams.toString()}`);
+    leads = data.leads.map(mapLead);
+  } catch (err) {
+    console.error('Error fetching leads:', err);
   }
-
-  let chosen;
-  if (APP_SETTINGS.distributionMode === 'round-robin') {
-    chosen = assignRoundRobin(lead, eligible);
-  } else {
-    // Smart: pick executive with lowest current load
-    eligible.sort((a, b) => a.currentLeads - b.currentLeads);
-    chosen = eligible[0];
-  }
-
-  chosen.currentLeads++;
-  chosen.totalAllTime = (chosen.totalAllTime || 0) + 1;
-  lead.assignedTo    = chosen.name;
-  lead.assignedExecId = chosen.id;
-  lead.status        = 'assigned';
-  lead.assignmentReason = `${APP_SETTINGS.distributionMode === 'round-robin' ? 'Round-robin' : 'Smart'} match: "${lead.location}" → ${chosen.name} (${chosen.currentLeads}/${chosen.maxDailyCapacity})`;
-  addHistory(lead, 'assigned', null, chosen.name, lead.assignmentReason);
-}
-
-function assignRoundRobin(lead, eligible) {
-  const key = lead.location;
-  if (APP_SETTINGS.roundRobinPointers[key] === undefined) {
-    APP_SETTINGS.roundRobinPointers[key] = 0;
-  }
-  const idx = APP_SETTINGS.roundRobinPointers[key] % eligible.length;
-  APP_SETTINGS.roundRobinPointers[key]++;
-  return eligible[idx];
-}
-
-function addHistory(lead, action, fromName, toName, reason) {
-  if (!lead.history) lead.history = [];
-  lead.history.push({ action, from: fromName, to: toName, reason, timestamp: new Date() });
 }
 
 // =============================================
-//  4. LEAD CREATION
+//  4. LEAD CREATION / FINALIZATION
 // =============================================
 
-function createLead(data, skipDupCheck = false) {
-  const score = calcScore(data);
-  leadCounter++;
-  const id = `lead-${Date.now()}-${leadCounter}`;
+async function finalizeLead(data, force = false) {
+  try {
+    const payload = {
+      name:          data.name,
+      phone:         data.phone,
+      source:        data.source,
+      location:      data.location,
+      budget:        data.budget,
+      property_type: data.propertyType,
+      temperature:   data.temperature,
+      force:         force
+    };
 
-  // BUG FIX #1: detectDuplicate BEFORE pushing to leads[]
-  // so the lead doesn't match itself. Pass the new id to exclude.
-  const isDuplicate = skipDupCheck ? false : !!detectDuplicate(data, id);
+    const res = await apiCall('POST', '/leads', payload);
+    const lead = mapLead(res.lead);
 
-  const lead = {
-    id,
-    name:         data.name,
-    phone:        data.phone,
-    source:       data.source,
-    location:     data.location,
-    budget:       data.budget,
-    propertyType: data.propertyType,
-    temperature:  data.temperature,
-    score:        score.total,
-    scoreBreak:   score,
-    timestamp:    new Date(),
-    assignedTo:   null,
-    assignedExecId: null,
-    status:       'unassigned',
-    assignmentReason: '',
-    isDuplicate,
-    history:      []
-  };
-  assignLead(lead);
-  leads.unshift(lead);
-  return lead;
+    // Reload all DB state
+    await loadInitialData();
+
+    // Show assignment outcome modal
+    showResultModal(lead);
+    clearForm();
+  } catch (err) {
+    if (err.status === 409) {
+      showDupWarning(err.body, data);
+    } else {
+      showToast('❌ Submission Failed', err.message || 'Could not submit lead.', '#f87171');
+    }
+  }
 }
 
 // =============================================
@@ -172,14 +335,12 @@ function openReassignModal(leadId) {
   document.getElementById('reassign-lead-name').textContent = lead.name + ' · ' + lead.location;
 
   const sel = document.getElementById('reassign-exec-select');
-  const eligible = getEligible(lead);
-  // Also allow current exec to stay (for manual override)
-  const all = executives.filter(e => e.active);
+  const allActive = executives.filter(e => e.active);
 
-  sel.innerHTML = all.map(e => {
+  sel.innerHTML = allActive.map(e => {
     const atCap = e.currentLeads >= e.maxDailyCapacity;
     const isCurrent = e.id === lead.assignedExecId;
-    const isEligible = eligible.find(el => el.id === e.id);
+    const isEligible = e.locations.includes(lead.location);
     return `<option value="${e.id}" ${isCurrent ? 'selected' : ''} ${atCap && !isCurrent ? 'disabled' : ''}>
       ${e.name} (${e.currentLeads}/${e.maxDailyCapacity})${atCap ? ' – At capacity' : ''}${isEligible ? ' ✓' : ''}
     </option>`;
@@ -194,7 +355,7 @@ function closeReassignModal() {
   activeReassignId = null;
 }
 
-function confirmReassign() {
+async function confirmReassign() {
   const lead = leads.find(l => l.id === activeReassignId);
   if (!lead) return;
 
@@ -203,53 +364,36 @@ function confirmReassign() {
   const newExec   = executives.find(e => e.id === newExecId);
   if (!newExec) return;
 
-  // Decrement old exec
-  if (lead.assignedExecId) {
-    const oldExec = executives.find(e => e.id === lead.assignedExecId);
-    if (oldExec && oldExec.currentLeads > 0) oldExec.currentLeads--;
+  try {
+    await apiCall('POST', `/leads/${lead.id}/reassign`, {
+      exec_id: newExecId,
+      reason
+    });
+
+    closeReassignModal();
+    await loadInitialData();
+    showToast('🔄 Lead Reassigned', `${lead.name} → ${newExec.name}`, '#ffaa3b');
+  } catch (err) {
+    showToast('❌ Reassign Failed', err.message || 'Could not reassign lead.', '#f87171');
   }
-
-  const prevName = lead.assignedTo;
-  newExec.currentLeads++;
-  lead.assignedTo    = newExec.name;
-  lead.assignedExecId = newExec.id;
-  lead.status        = 'assigned';
-
-  addHistory(lead, 'reassigned', prevName, newExec.name, reason);
-
-  closeReassignModal();
-  renderAll();
-  showToast('🔄 Lead Reassigned', `${lead.name} → ${newExec.name}`, '#ffaa3b');
 }
 
 // =============================================
 //  6. REDISTRIBUTE ALL
 // =============================================
 
-function redistributeAll() {
-  // Recalculate exec loads from scratch
-  executives.forEach(e => e.currentLeads = 0);
-  leads.forEach(l => {
-    if (l.status === 'assigned' && l.assignedExecId) {
-      const ex = executives.find(e => e.id === l.assignedExecId);
-      if (ex) ex.currentLeads++;
-    }
-  });
-
-  let count = 0;
-  leads.forEach(l => {
-    if (l.status === 'unassigned') {
-      assignLead(l);
-      if (l.status === 'assigned') count++;
-    }
-  });
-
-  renderAll();
-  showToast(
-    '🔄 Re-distribution Complete',
-    count > 0 ? `${count} lead(s) newly assigned.` : 'No new assignments could be made.',
-    count > 0 ? '#34d399' : '#ffaa3b'
-  );
+async function redistributeAll() {
+  try {
+    const res = await apiCall('POST', '/executives/redistribute');
+    await loadInitialData();
+    showToast(
+      '🔄 Re-distribution Complete',
+      res.assigned > 0 ? `${res.assigned} lead(s) newly assigned.` : 'No new assignments could be made.',
+      res.assigned > 0 ? '#34d399' : '#ffaa3b'
+    );
+  } catch (err) {
+    showToast('❌ Redistribution Failed', err.message || 'Could not redistribute leads.', '#f87171');
+  }
 }
 
 // =============================================
@@ -271,35 +415,19 @@ function submitLead(e) {
     temperature:  tempVal.value
   };
 
-  // Duplicate detection
-  if (!APP_SETTINGS.allowDuplicates) {
-    const dup = detectDuplicate(data);
-    if (dup) {
-      showDupWarning(dup, data);
-      return;
-    }
-  }
-
-  finalizeLead(data);
-}
-
-function finalizeLead(data, force = false) {
-  const lead = createLead(data, force);
-  renderAll();
-  updateScorePreview();
-  showResultModal(lead);
-  clearForm();
+  finalizeLead(data, false);
 }
 
 function showDupWarning(dup, data) {
   pendingDupSubmit = data;
-  const existing = dup.lead;
+  const existing = dup.existing;
+  const matchType = dup.type === 'phone' ? '📞 Phone Match' : '👤 Name Match';
 
   document.getElementById('dup-body').innerHTML = `
     <div class="modal-detail">
       <span class="modal-detail-lbl">Match Type</span>
       <span class="modal-detail-val">
-        <span class="badge badge-dup">${dup.type === 'phone' ? '📞 Phone Match' : '👤 Name Match'}</span>
+        <span class="badge badge-dup">${matchType}</span>
       </span>
     </div>
     <div class="modal-detail">
@@ -312,11 +440,11 @@ function showDupWarning(dup, data) {
     </div>
     <div class="modal-detail">
       <span class="modal-detail-lbl">Added On</span>
-      <span class="modal-detail-val">${formatDateTime(existing.timestamp)}</span>
+      <span class="modal-detail-val">${formatDateTime(new Date(existing.created_at))}</span>
     </div>
     <div class="modal-detail">
       <span class="modal-detail-lbl">Assigned To</span>
-      <span class="modal-detail-val">${existing.assignedTo || '(Unassigned)'}</span>
+      <span class="modal-detail-val">${existing.assigned_exec_name || '(Unassigned)'}</span>
     </div>
     <p style="margin-top:14px;font-size:12px;color:var(--text-2);">Submit anyway to create a new lead entry, or cancel to review.</p>
   `;
@@ -337,13 +465,12 @@ function closeDupModal() {
 
 function showResultModal(lead) {
   const assigned = lead.status === 'assigned';
-  const exec = assigned ? executives.find(e => e.id === lead.assignedExecId) : null;
 
   document.getElementById('result-icon').textContent = assigned ? '✅' : '⚠️';
   document.getElementById('result-icon').style.background = assigned ? 'rgba(52,211,153,0.15)' : 'rgba(251,191,36,0.15)';
   document.getElementById('result-title').textContent = assigned ? 'Lead Assigned!' : 'Lead Unassigned';
   document.getElementById('result-sub').textContent = assigned
-    ? `Score ${lead.score} · ${APP_SETTINGS.distributionMode === 'round-robin' ? 'Round-Robin' : 'Smart'} mode`
+    ? `Score ${lead.score} · Mapped via ${APP_SETTINGS.distributionMode === 'round-robin' ? 'Round-Robin' : 'Smart'} mode`
     : 'No eligible executive found';
 
   document.getElementById('result-body').innerHTML = `
@@ -362,11 +489,7 @@ function showResultModal(lead) {
     ${assigned ? `
     <div class="modal-detail">
       <span class="modal-detail-lbl">Assigned To</span>
-      <span class="modal-detail-val" style="font-weight:700;color:var(--green)">${escHtml(exec.name)}</span>
-    </div>
-    <div class="modal-detail">
-      <span class="modal-detail-lbl">Exec Load</span>
-      <span class="modal-detail-val">${exec.currentLeads} / ${exec.maxDailyCapacity} today</span>
+      <span class="modal-detail-val" style="font-weight:700;color:var(--green)">${escHtml(lead.assignedTo)}</span>
     </div>` : ''}
     <div class="modal-detail">
       <span class="modal-detail-lbl">Reason</span>
@@ -376,7 +499,7 @@ function showResultModal(lead) {
 
   document.getElementById('result-overlay').classList.add('show');
 
-  const msg = assigned ? `${lead.name} → ${exec.name}` : lead.assignmentReason;
+  const msg = assigned ? `${lead.name} → ${lead.assignedTo}` : lead.assignmentReason;
   showToast(assigned ? '✅ Lead Assigned' : '⚠️ Unassigned', msg, assigned ? '#34d399' : '#ffaa3b');
 }
 
@@ -393,57 +516,56 @@ function clearForm() {
 
 let scorePreviewRAF = null;
 let lastScoreVal = 0;
+let checkDupTimeout = null;
 
 function updateScorePreview() {
   const tempVal = document.querySelector('input[name="f-temp"]:checked')?.value || '';
   const budget  = document.getElementById('f-budget')?.value || '';
-  // BUG FIX #3: only pass source if it has a value, so score.s returns 0 not 5 on empty
   const source  = document.getElementById('f-source')?.value || '';
   const prop    = document.getElementById('f-property')?.value || '';
   const loc     = document.getElementById('f-location')?.value || '';
   const name    = document.getElementById('f-name')?.value.trim() || '';
   const phone   = document.getElementById('f-phone')?.value.trim() || '';
 
-  // BUG FIX #3: pass empty source as '' so calcScore returns 0 (not default 5) when unselected
   const data = { temperature: tempVal, budget, source: source || '__none__', propertyType: prop, location: loc };
   const score = calcScore(data);
 
-  // BUG FIX #4/10: unified dup hint with proper class management and clear on empty
+  // Asynchronous debounced duplicate detection
   const hint = document.getElementById('dup-hint');
   if (hint) {
     if (phone.length >= 7) {
-      const dup = detectDuplicate({ name, phone });
-      if (dup) {
-        hint.textContent = dup.type === 'phone' ? '⚠ Phone number already exists' : '⚠ Name matches an existing lead';
-        hint.style.cssText = 'color:var(--yellow);';
-      } else {
-        hint.textContent = '✓ No duplicates found';
-        hint.style.cssText = 'color:var(--green);';
-      }
+      clearTimeout(checkDupTimeout);
+      checkDupTimeout = setTimeout(async () => {
+        try {
+          const res = await apiCall('POST', '/leads/check-dup', { name, phone });
+          if (res.isDuplicate) {
+            hint.textContent = res.type === 'phone' ? '⚠ Phone number already exists' : '⚠ Name matches an existing lead';
+            hint.style.cssText = 'color:var(--yellow);';
+          } else {
+            hint.textContent = '✓ No duplicates found';
+            hint.style.cssText = 'color:var(--green);';
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }, 400);
     } else {
-      // BUG FIX #10: clear hint when phone is empty/too short
       hint.textContent = '';
       hint.style.cssText = '';
     }
   }
 
-  // Score ring center
-  const center = document.getElementById('score-ring-center');
-  if (center) center.textContent = score.total > 0 ? score.total : '—';
-
   // Score breakdown
   const setBreak = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val > 0 ? val : '—'; };
   setBreak('sc-temp', score.t);
   setBreak('sc-budget', score.b);
-  // For source: show 0 if no source selected
   setBreak('sc-source', source ? score.s : 0);
   setBreak('sc-property', score.p);
 
   // Eligible executives preview
   const eligibleList = document.getElementById('eligible-list');
   if (eligibleList && loc) {
-    const mockLead = { location: loc, temperature: tempVal, budget, propertyType: prop };
-    const eligible = getEligible(mockLead);
+    const eligible = executives.filter(e => e.active && e.locations.includes(loc) && e.currentLeads < e.maxDailyCapacity);
     if (eligible.length === 0) {
       eligibleList.innerHTML = '<div style="font-size:12px;color:var(--red)">No eligible executives for this location</div>';
     } else {
@@ -459,12 +581,10 @@ function updateScorePreview() {
     eligibleList.innerHTML = '<div style="font-size:12px;color:var(--text-3)">Select a location to preview</div>';
   }
 
-  // Animate ring (use real score based on actual selected source)
+  // Animate ring
   const realData = { temperature: tempVal, budget, source, propertyType: prop };
   const realScore = calcScore(realData);
   animateScoreRing(realScore.total);
-  if (center) center.textContent = realScore.total > 0 ? realScore.total : '—';
-  setBreak('sc-source', score.s && source ? score.s : 0);
 }
 
 function animateScoreRing(targetScore) {
@@ -474,8 +594,6 @@ function animateScoreRing(targetScore) {
   const cx = 70, cy = 70, r = 54, lw = 10;
   let current = lastScoreVal;
 
-  // BUG FIX #11: when step===0, the RAF never terminates.
-  // Snap immediately if target equals current.
   if (current === targetScore) {
     renderRingFrame(ctx, cx, cy, r, lw, current);
     return;
@@ -486,7 +604,6 @@ function animateScoreRing(targetScore) {
 
   function draw() {
     current += step;
-    // Clamp to target
     if (step > 0 && current >= targetScore) current = targetScore;
     if (step < 0 && current <= targetScore) current = targetScore;
 
@@ -505,14 +622,12 @@ function animateScoreRing(targetScore) {
 function renderRingFrame(ctx, cx, cy, r, lw, current) {
   ctx.clearRect(0, 0, 140, 140);
 
-  // Track
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = lw;
   ctx.stroke();
 
-  // Fill arc
   if (current > 0) {
     const angle = (current / 100) * Math.PI * 2 - Math.PI / 2;
     const grad = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
@@ -538,106 +653,118 @@ function renderRingFrame(ctx, cx, cy, r, lw, current) {
 //  9. EXECUTIVE PANEL (SLIDE-OVER)
 // =============================================
 
-function openExecPanel(execId) {
-  const exec = executives.find(e => e.id === execId);
-  if (!exec) return;
+async function openExecPanel(execId) {
+  if (currentUser.role === 'executive' && execId !== currentUser.id) {
+    showToast('⚠️ Access Denied', 'Executives can only view their own profile.', '#f87171');
+    return;
+  }
 
-  const initials = exec.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const pct = exec.maxDailyCapacity > 0 ? Math.min(100, Math.round(exec.currentLeads / exec.maxDailyCapacity * 100)) : 0;
-  const color = pct >= 90 ? 'var(--red)' : pct >= 60 ? 'var(--warm)' : 'var(--green)';
-  const execLeads = leads.filter(l => l.assignedExecId === execId);
+  try {
+    // Retrieve fresh data for this executive
+    const execDetails = await apiCall('GET', `/executives/${execId}`);
+    const execStats   = await apiCall('GET', `/executives/${execId}/stats`);
 
-  document.getElementById('exec-panel-profile').innerHTML = `
-    <div class="exec-av-lg ${exec.avatarClass}" style="width:52px;height:52px;font-size:19px;">
-      ${initials}
-      <span class="status-ring ${exec.active ? 'active' : 'inactive'}"></span>
-    </div>
-    <div>
-      <div style="font-size:16px;font-weight:800;margin-bottom:2px;">${escHtml(exec.name)}</div>
-      <div style="font-size:12px;color:var(--text-2);">${escHtml(exec.email)}</div>
-      <div style="font-size:12px;color:var(--text-3);margin-top:2px;">${escHtml(exec.phone)}</div>
-    </div>
-  `;
+    const mappedExec  = mapExecutive(execDetails);
+    const mappedLeads = (execDetails.leads || []).map(mapLead);
 
-  document.getElementById('exec-panel-body').innerHTML = `
-    <!-- Stats Row -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">
-      <div class="exec-mini-stat">
-        <div class="exec-mini-stat-val" style="color:${color}">${exec.currentLeads}</div>
-        <div class="exec-mini-stat-lbl">Today</div>
-      </div>
-      <div class="exec-mini-stat">
-        <div class="exec-mini-stat-val">${exec.maxDailyCapacity}</div>
-        <div class="exec-mini-stat-lbl">Capacity</div>
-      </div>
-      <div class="exec-mini-stat">
-        <div class="exec-mini-stat-val" style="color:var(--green)">${exec.successRate}%</div>
-        <div class="exec-mini-stat-lbl">Success</div>
-      </div>
-    </div>
+    const initials = mappedExec.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const pct = mappedExec.maxDailyCapacity > 0 ? Math.min(100, Math.round(mappedExec.currentLeads / mappedExec.maxDailyCapacity * 100)) : 0;
+    const color = pct >= 90 ? 'var(--red)' : pct >= 60 ? 'var(--warm)' : 'var(--green)';
 
-    <!-- Capacity Bar -->
-    <div style="margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:6px;">
-        <span>Daily Capacity</span>
-        <span style="font-weight:700;color:${color}">${pct}% used</span>
+    document.getElementById('exec-panel-profile').innerHTML = `
+      <div class="exec-av-lg ${mappedExec.avatarClass}" style="width:52px;height:52px;font-size:19px;">
+        ${initials}
+        <span class="status-ring ${mappedExec.active ? 'active' : 'inactive'}"></span>
       </div>
-      <div class="exec-progress">
-        <div class="exec-progress-fill" style="width:${pct}%;background:${color};"></div>
+      <div>
+        <div style="font-size:16px;font-weight:800;margin-bottom:2px;">${escHtml(mappedExec.name)}</div>
+        <div style="font-size:12px;color:var(--text-2);">${escHtml(mappedExec.email)}</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:2px;">${escHtml(mappedExec.phone)}</div>
       </div>
-    </div>
+    `;
 
-    <!-- Expertise Tags -->
-    <div style="margin-bottom:20px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">Expertise</div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;">
-        ${exec.expertise.map(ex => `<span class="loc-tag" style="color:var(--accent-2);border-color:rgba(124,109,255,0.25);">${escHtml(ex)}</span>`).join('')}
+    document.getElementById('exec-panel-body').innerHTML = `
+      <!-- Stats Row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">
+        <div class="exec-mini-stat">
+          <div class="exec-mini-stat-val" style="color:${color}">${mappedExec.currentLeads}</div>
+          <div class="exec-mini-stat-lbl">Today</div>
+        </div>
+        <div class="exec-mini-stat">
+          <div class="exec-mini-stat-val">${mappedExec.maxDailyCapacity}</div>
+          <div class="exec-mini-stat-lbl">Capacity</div>
+        </div>
+        <div class="exec-mini-stat">
+          <div class="exec-mini-stat-val" style="color:var(--green)">${mappedExec.successRate}%</div>
+          <div class="exec-mini-stat-lbl">Success</div>
+        </div>
       </div>
-    </div>
 
-    <!-- Location Coverage -->
-    <div style="margin-bottom:20px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">Location Coverage</div>
-      <div class="exec-locations">${exec.locations.map(l => `<span class="loc-tag">${escHtml(l)}</span>`).join('')}</div>
-    </div>
-
-    <!-- Assigned Leads -->
-    <div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">
-        Assigned Leads (${execLeads.length})
+      <!-- Capacity Bar -->
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:6px;">
+          <span>Daily Capacity</span>
+          <span style="font-weight:700;color:${color}">${pct}% used</span>
+        </div>
+        <div class="exec-progress">
+          <div class="exec-progress-fill" style="width:${pct}%;background:${color};"></div>
+        </div>
       </div>
-      ${execLeads.length === 0
-        ? '<div style="font-size:13px;color:var(--text-3);padding:20px 0;text-align:center;">No leads assigned yet</div>'
-        : execLeads.map(l => `
-          <div class="panel-lead-item">
-            <div>
-              <div class="panel-lead-name">${escHtml(l.name)}</div>
-              <div class="panel-lead-sub">${escHtml(l.location)} · ${escHtml(l.budget)}</div>
+
+      <!-- Expertise Tags -->
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">Expertise</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;">
+          ${mappedExec.expertise.map(ex => `<span class="loc-tag" style="color:var(--accent-2);border-color:rgba(124,109,255,0.25);">${escHtml(ex)}</span>`).join('')}
+        </div>
+      </div>
+
+      <!-- Location Coverage -->
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">Location Coverage</div>
+        <div class="exec-locations">${mappedExec.locations.map(l => `<span class="loc-tag">${escHtml(l)}</span>`).join('')}</div>
+      </div>
+
+      <!-- Assigned Leads -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:8px;">
+          Assigned Leads (${mappedLeads.length})
+        </div>
+        ${mappedLeads.length === 0
+          ? '<div style="font-size:13px;color:var(--text-3);padding:20px 0;text-align:center;">No leads assigned yet</div>'
+          : mappedLeads.map(l => `
+            <div class="panel-lead-item">
+              <div>
+                <div class="panel-lead-name">${escHtml(l.name)}</div>
+                <div class="panel-lead-sub">${escHtml(l.location)} · ${escHtml(l.budget)}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${tempBadge(l.temperature)}
+                ${scorePill(l.score)}
+              </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${tempBadge(l.temperature)}
-              ${scorePill(l.score)}
-            </div>
-          </div>
-        `).join('')
-      }
-    </div>
-
-    <!-- Assignment History for this exec -->
-    ${execLeads.length > 0 ? `
-    <div style="margin-top:24px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:12px;">Recent Activity</div>
-      <div class="history-timeline">
-        ${execLeads.flatMap(l => (l.history || []).map(h => ({...h, leadName: l.name})))
-          .sort((a,b) => b.timestamp - a.timestamp)
-          .slice(0, 6)
-          .map(h => historyItem(h)).join('')}
+          `).join('')
+        }
       </div>
-    </div>` : ''}
-  `;
 
-  document.getElementById('exec-overlay').classList.add('show');
-  document.getElementById('exec-panel').classList.add('open');
+      <!-- Assignment History for this exec -->
+      ${mappedLeads.length > 0 ? `
+      <div style="margin-top:24px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-3);margin-bottom:12px;">Recent Activity</div>
+        <div class="history-timeline">
+          ${mappedLeads.flatMap(l => (l.history || []).map(h => ({...h, leadName: l.name})))
+            .sort((a,b) => b.timestamp - a.timestamp)
+            .slice(0, 6)
+            .map(h => historyItem(h)).join('')}
+        </div>
+      </div>` : ''}
+    `;
+
+    document.getElementById('exec-overlay').classList.add('show');
+    document.getElementById('exec-panel').classList.add('open');
+  } catch (err) {
+    showToast('❌ Profile Load Failed', err.message || 'Could not fetch executive details.', '#f87171');
+  }
 }
 
 function closeExecPanel() {
@@ -672,7 +799,6 @@ function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
 // =============================================
 
 function renderAdminPanel() {
-  // Executive management list
   const list = document.getElementById('admin-exec-list');
   if (!list) return;
 
@@ -696,7 +822,7 @@ function renderAdminPanel() {
     `;
   }).join('');
 
-  // System health
+  // System health stats (calculated locally from memory lists synced with DB)
   const total      = leads.length;
   const assigned   = leads.filter(l => l.status === 'assigned').length;
   const unassigned = leads.filter(l => l.status === 'unassigned').length;
@@ -719,44 +845,69 @@ function renderAdminPanel() {
   `).join('');
 }
 
-function toggleExecStatus(execId, isActive) {
+async function toggleExecStatus(execId, isActive) {
   const exec = executives.find(e => e.id === execId);
   if (!exec) return;
-  exec.active = isActive;
-  renderAll();
-  showToast(
-    isActive ? '✅ Executive Activated' : '🔕 Executive Deactivated',
-    `${exec.name} is now ${isActive ? 'active' : 'inactive'}`,
-    isActive ? '#34d399' : '#ffaa3b'
-  );
+
+  try {
+    await apiCall('PATCH', `/executives/${execId}`, { active: isActive });
+    exec.active = isActive;
+    renderAll();
+    showToast(
+      isActive ? '✅ Executive Activated' : '🔕 Executive Deactivated',
+      `${exec.name} is now ${isActive ? 'active' : 'inactive'}`,
+      isActive ? '#34d399' : '#ffaa3b'
+    );
+  } catch (err) {
+    showToast('❌ Update Failed', err.message || 'Could not update status.', '#f87171');
+    await loadInitialData(); // Rollback UI status
+  }
 }
 
-function updateExecCapacity(execId, val) {
+async function updateExecCapacity(execId, val) {
   const exec = executives.find(e => e.id === execId);
   if (!exec) return;
-  exec.maxDailyCapacity = Math.max(1, parseInt(val) || 1);
-  renderAll();
+  const cap = Math.max(1, parseInt(val) || 1);
+
+  try {
+    await apiCall('PATCH', `/executives/${execId}`, { max_daily_capacity: cap });
+    exec.maxDailyCapacity = cap;
+    renderAll();
+  } catch (err) {
+    showToast('❌ Update Failed', err.message || 'Could not update capacity.', '#f87171');
+    await loadInitialData(); // Rollback UI values
+  }
 }
 
-function setDistributionMode(mode) {
-  APP_SETTINGS.distributionMode = mode;
-  document.getElementById('btn-smart').classList.toggle('active', mode === 'smart');
-  document.getElementById('btn-rr').classList.toggle('active', mode === 'round-robin');
-  document.getElementById('mode-label').textContent = mode === 'smart' ? 'Smart Mode' : 'Round-Robin';
-  APP_SETTINGS.roundRobinPointers = {}; // reset pointers on mode switch
-  showToast('⚙️ Mode Changed', `Distribution set to: ${mode === 'smart' ? 'Smart (Lowest Load)' : 'Round-Robin'}`, 'var(--accent-2)');
+async function setDistributionMode(mode) {
+  try {
+    await apiCall('PATCH', '/auth/tenant/settings', { settings: { distributionMode: mode } });
+    APP_SETTINGS.distributionMode = mode;
+    setDistributionModeUI(mode);
+    showToast('⚙️ Mode Changed', `Distribution set to: ${mode === 'smart' ? 'Smart (Lowest Load)' : 'Round-Robin'}`, 'var(--accent-2)');
+  } catch (err) {
+    showToast('❌ Update Failed', err.message || 'Could not update settings.', '#f87171');
+  }
 }
 
-function resetDailyCounters() {
-  executives.forEach(e => e.currentLeads = 0);
-  leads.forEach(l => {
-    if (l.status === 'assigned') {
-      const ex = executives.find(e => e.id === l.assignedExecId);
-      if (ex) ex.currentLeads++;
-    }
-  });
-  renderAll();
-  showToast('🔄 Counters Reset', 'Daily lead counts have been recalculated.', '#38b2ff');
+function setDistributionModeUI(mode) {
+  const smartBtn = document.getElementById('btn-smart');
+  const rrBtn = document.getElementById('btn-rr');
+  const modeLabel = document.getElementById('mode-label');
+
+  if (smartBtn) smartBtn.classList.toggle('active', mode === 'smart');
+  if (rrBtn) rrBtn.classList.toggle('active', mode === 'round-robin');
+  if (modeLabel) modeLabel.textContent = mode === 'smart' ? 'Smart Mode' : 'Round-Robin';
+}
+
+async function resetDailyCounters() {
+  try {
+    await apiCall('POST', '/executives/reset-counters');
+    showToast('🔄 Counters Reset', 'Daily counters have been reset successfully.', '#38b2ff');
+    await loadInitialData();
+  } catch (err) {
+    showToast('❌ Reset Failed', err.message || 'Could not reset counters.', '#f87171');
+  }
 }
 
 // =============================================
@@ -771,17 +922,14 @@ function renderAll() {
   renderExecGrid();
   renderAdminPanel();
   updateNavBadges();
-  // BUG FIX #12: only render Analytics bar charts when the Analytics section is
-  // actually visible, to avoid Canvas scale accumulation on hidden elements
-  // where offsetWidth = 0, and to save CPU on every state change.
+
   const analyticsVisible = document.getElementById('section-analytics')?.classList.contains('active');
   if (analyticsVisible) renderAnalytics();
-  drawTrendChart();      // trend chart is always on dashboard, always render
-  drawAssignmentDonut(); // donut charts are always visible on dashboard
+  drawTrendChart();
+  drawAssignmentDonut();
   drawTempDonut();
 }
 
-// ── Nav Badges ───────────────────────────────
 function updateNavBadges() {
   const total = leads.length;
   const active = executives.filter(e => e.active).length;
@@ -799,7 +947,6 @@ function updateNavBadges() {
   set('nav-badge-executives', active, true);
 }
 
-// ── Stats Grid ───────────────────────────────
 function renderStats() {
   const total      = leads.length;
   const assigned   = leads.filter(l => l.status === 'assigned').length;
@@ -827,7 +974,6 @@ function renderStats() {
   `).join('');
 }
 
-// ── Executive Performance (Dashboard) ────────
 function renderExecPerformance() {
   const el = document.getElementById('exec-perf-list');
   if (!el) return;
@@ -850,7 +996,6 @@ function renderExecPerformance() {
   }).join('');
 }
 
-// ── Recent Leads (Dashboard) ─────────────────
 function renderRecentLeads() {
   const tbody = document.getElementById('recent-leads-body');
   if (!tbody) return;
@@ -877,75 +1022,64 @@ function renderRecentLeads() {
   `).join('');
 }
 
-// ── All Leads Table ──────────────────────────
-function renderLeadsTable() {
-  const tf  = document.getElementById('filter-temp')?.value   || '';
-  const sf  = document.getElementById('filter-status')?.value || '';
-  const srcF= document.getElementById('filter-source')?.value || '';
-  const exF = document.getElementById('filter-exec')?.value   || '';
-  const q   = (document.getElementById('search-leads')?.value || '').toLowerCase();
+async function renderLeadsTable() {
+  // Pull fresh list filtered by database queries
+  await fetchLeads();
 
-  // Populate dropdowns once
+  // Re-populate dropdown lists dynamically
   populateFilterDropdowns();
-
-  let filtered = leads.filter(l => {
-    if (tf   && l.temperature !== tf)   return false;
-    if (sf   && l.status !== sf)        return false;
-    if (srcF && l.source !== srcF)      return false;
-    if (exF  && l.assignedExecId !== exF) return false;
-    if (q) {
-      const h = `${l.name} ${l.phone} ${l.location} ${l.source} ${l.assignedTo||''}`.toLowerCase();
-      if (!h.includes(q)) return false;
-    }
-    return true;
-  });
 
   const tbody = document.getElementById('all-leads-body');
   if (!tbody) return;
 
-  if (!filtered.length) {
+  if (!leads.length) {
     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-3)">No leads match your filters.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = filtered.map((l, i) => `
-    <tr>
-      <td style="color:var(--text-3);font-size:11px">${i+1}</td>
-      <td>
-        <div class="td-lead-name">${escHtml(l.name)}${l.isDuplicate ? ' <span class="badge badge-dup" style="font-size:9px">DUP</span>' : ''}</div>
-        <div class="td-lead-phone">${escHtml(l.phone)}</div>
-      </td>
-      <td>${scorePill(l.score)}</td>
-      <td>${tempBadge(l.temperature)}</td>
-      <td style="font-size:12px">${escHtml(l.source)}</td>
-      <td style="font-size:12px">${escHtml(l.location)}</td>
-      <td style="font-size:12px">${escHtml(l.budget)}</td>
-      <td style="font-size:11.5px;color:var(--text-2)">${escHtml(l.propertyType)}</td>
-      <td style="font-weight:600;color:var(--text-1)">${l.assignedTo ? escHtml(l.assignedTo) : '<span style="color:var(--text-3)">—</span>'}</td>
-      <td>${statusBadge(l.status)}</td>
-      <td style="font-size:11px;color:var(--text-3);white-space:nowrap">${formatDateTime(l.timestamp)}</td>
-      <td>
-        <div style="display:flex;gap:5px;">
-          <button class="tbl-btn" onclick="openReassignModal('${l.id}')">Reassign</button>
-          <button class="tbl-btn" onclick="viewHistory('${l.id}')">History</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = leads.map((l, i) => {
+    // Enforce role-based reassignment restriction in UI
+    const reassignButtonHtml = currentUser.role === 'admin' 
+      ? `<button class="tbl-btn" onclick="openReassignModal('${l.id}')">Reassign</button>`
+      : '';
+
+    return `
+      <tr>
+        <td style="color:var(--text-3);font-size:11px">${i+1}</td>
+        <td>
+          <div class="td-lead-name">${escHtml(l.name)}${l.isDuplicate ? ' <span class="badge badge-dup" style="font-size:9px">DUP</span>' : ''}</div>
+          <div class="td-lead-phone">${escHtml(l.phone)}</div>
+        </td>
+        <td>${scorePill(l.score)}</td>
+        <td>${tempBadge(l.temperature)}</td>
+        <td style="font-size:12px">${escHtml(l.source)}</td>
+        <td style="font-size:12px">${escHtml(l.location)}</td>
+        <td style="font-size:12px">${escHtml(l.budget)}</td>
+        <td style="font-size:11.5px;color:var(--text-2)">${escHtml(l.propertyType)}</td>
+        <td style="font-weight:600;color:var(--text-1)">${l.assignedTo ? escHtml(l.assignedTo) : '<span style="color:var(--text-3)">—</span>'}</td>
+        <td>${statusBadge(l.status)}</td>
+        <td style="font-size:11px;color:var(--text-3);white-space:nowrap">${formatDateTime(l.timestamp)}</td>
+        <td>
+          <div style="display:flex;gap:5px;">
+            ${reassignButtonHtml}
+            <button class="tbl-btn" onclick="viewHistory('${l.id}')">History</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function populateFilterDropdowns() {
-  // BUG FIX #8: Fully rebuild dropdowns to avoid stale/duplicate options
   const srcSel  = document.getElementById('filter-source');
   const execSel = document.getElementById('filter-exec');
   if (!srcSel || !execSel) return;
 
-  // Preserve current selections
   const curSrc  = srcSel.value;
   const curExec = execSel.value;
 
-  // Rebuild source dropdown
-  const sources = [...new Set(leads.map(l => l.source))].sort();
+  // Render sources dropdown dynamically
+  const sources = ['99acres', 'MagicBricks', 'Housing.com', 'Facebook Ads', 'Google Ads', 'Referral', 'Walk-in', 'Instagram', 'NoBroker'];
   srcSel.innerHTML = '<option value="">All Sources</option>';
   sources.forEach(src => {
     const opt = document.createElement('option');
@@ -954,9 +1088,9 @@ function populateFilterDropdowns() {
     srcSel.appendChild(opt);
   });
 
-  // Rebuild exec dropdown
+  // Render exec dropdown dynamically
   execSel.innerHTML = '<option value="">All Executives</option>';
-  executives.filter(e => e.active).forEach(ex => {
+  executives.forEach(ex => {
     const opt = document.createElement('option');
     opt.value = ex.id; opt.textContent = ex.name;
     if (ex.id === curExec) opt.selected = true;
@@ -965,25 +1099,30 @@ function populateFilterDropdowns() {
 }
 
 // ── View History Modal ────────────────────────
-function viewHistory(leadId) {
-  const lead = leads.find(l => l.id === leadId);
-  if (!lead) return;
 
-  const hist = (lead.history || []).slice().reverse();
+async function viewHistory(leadId) {
+  try {
+    const lead = await apiCall('GET', `/leads/${leadId}`);
+    const mapped = mapLead(lead);
+    const hist = mapped.history || [];
 
-  document.getElementById('result-icon').textContent = '📋';
-  document.getElementById('result-icon').style.background = 'var(--accent-dim)';
-  document.getElementById('result-title').textContent = 'Assignment History';
-  document.getElementById('result-sub').textContent = `${lead.name} · ${hist.length} event(s)`;
+    document.getElementById('result-icon').textContent = '📋';
+    document.getElementById('result-icon').style.background = 'var(--accent-dim)';
+    document.getElementById('result-title').textContent = 'Assignment History';
+    document.getElementById('result-sub').textContent = `${mapped.name} · ${hist.length} event(s)`;
 
-  document.getElementById('result-body').innerHTML = hist.length === 0
-    ? '<p style="color:var(--text-3);text-align:center;padding:20px;">No history recorded.</p>'
-    : `<div class="history-timeline">${hist.map(h => historyItem({...h, leadName: ''})).join('')}</div>`;
+    document.getElementById('result-body').innerHTML = hist.length === 0
+      ? '<p style="color:var(--text-3);text-align:center;padding:20px;">No history recorded.</p>'
+      : `<div class="history-timeline">${hist.map(h => historyItem({...h, leadName: ''})).join('')}</div>`;
 
-  document.getElementById('result-overlay').classList.add('show');
+    document.getElementById('result-overlay').classList.add('show');
+  } catch (err) {
+    showToast('❌ History Load Failed', err.message || 'Could not fetch lead logs.', '#f87171');
+  }
 }
 
 // ── Executive Cards ───────────────────────────
+
 function renderExecGrid() {
   const grid = document.getElementById('exec-grid');
   if (!grid) return;
@@ -993,7 +1132,6 @@ function renderExecGrid() {
     const pct = exec.maxDailyCapacity > 0 ? Math.min(100, Math.round(exec.currentLeads / exec.maxDailyCapacity * 100)) : 0;
     const color = pct >= 90 ? 'var(--red)' : pct >= 60 ? 'var(--warm)' : 'var(--green)';
     const pips = Array.from({length: 10}, (_, i) => `<div class="pip ${i < Math.round(exec.successRate / 10) ? 'filled' : ''}"></div>`).join('');
-    const assignedLeads = leads.filter(l => l.assignedExecId === exec.id).length;
 
     return `
       <div class="exec-card ${exec.active ? '' : 'inactive'}" onclick="openExecPanel('${exec.id}')">
@@ -1017,7 +1155,7 @@ function renderExecGrid() {
             <div class="exec-mini-stat-lbl">Today</div>
           </div>
           <div class="exec-mini-stat">
-            <div class="exec-mini-stat-val">${assignedLeads}</div>
+            <div class="exec-mini-stat-val">${exec.totalAllTime}</div>
             <div class="exec-mini-stat-lbl">Total</div>
           </div>
           <div class="exec-mini-stat">
@@ -1054,7 +1192,6 @@ function renderExecGrid() {
 //  12. CANVAS CHARTS
 // =============================================
 
-// ── Donut Chart ───────────────────────────────
 function drawDonut(canvasId, segments, legendId) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -1064,7 +1201,6 @@ function drawDonut(canvasId, segments, legendId) {
 
   ctx.clearRect(0, 0, W, H);
 
-  // BUG FIX #6: if all values are zero, draw an empty ring with a label
   const realTotal = segments.reduce((s, x) => s + x.val, 0);
   if (realTotal === 0) {
     ctx.beginPath();
@@ -1090,7 +1226,7 @@ function drawDonut(canvasId, segments, legendId) {
 
   let angle = -Math.PI / 2;
   segments.forEach(seg => {
-    if (seg.val <= 0) return; // skip zero-value segments
+    if (seg.val <= 0) return;
     const sweep = (seg.val / realTotal) * Math.PI * 2;
     ctx.beginPath();
     ctx.arc(cx, cy, R, angle, angle + sweep);
@@ -1142,7 +1278,6 @@ function drawTempDonut() {
   ], 'donut-legend-temp');
 }
 
-// ── Bar Chart ─────────────────────────────────
 function drawBar(canvasId, labels, values, colors, maxVal) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -1150,10 +1285,9 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
   const W = canvas.offsetWidth || 400;
   const H = 240;
   const dpr = window.devicePixelRatio || 1;
-  // BUG FIX #7: always reset canvas size before scaling to prevent accumulation
   canvas.width  = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // reset any previous transform
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(dpr, dpr);
 
   const pad = { t: 16, r: 16, b: 44, l: 36 };
@@ -1166,7 +1300,6 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
   const barW = Math.min(32, (cw / (labels.length || 1)) - 8);
   const gap  = cw / (labels.length || 1);
 
-  // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -1181,13 +1314,11 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
     ctx.fillText(Math.round(max * i / 4), pad.l - 4, y + 3);
   }
 
-  // Bars
   values.forEach((val, i) => {
     const bh = val > 0 ? Math.max(4, (val / max) * ch) : 0;
     const x = pad.l + gap * i + (gap - barW) / 2;
     const y = pad.t + ch - bh;
 
-    // Gradient fill
     const grad = ctx.createLinearGradient(x, y, x, pad.t + ch);
     const base = colors[i % colors.length];
     grad.addColorStop(0, base);
@@ -1197,7 +1328,6 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
     ctx.roundRect ? ctx.roundRect(x, y, barW, bh, [4, 4, 0, 0]) : ctx.rect(x, y, barW, bh);
     ctx.fill();
 
-    // Value label
     if (val > 0) {
       ctx.fillStyle = base;
       ctx.font = `bold 10px Inter`;
@@ -1205,7 +1335,6 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
       ctx.fillText(val, x + barW / 2, y - 5);
     }
 
-    // X label
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = `10px Inter`;
     ctx.textAlign = 'center';
@@ -1214,7 +1343,6 @@ function drawBar(canvasId, labels, values, colors, maxVal) {
   });
 }
 
-// ── Trend Sparkline ───────────────────────────
 function drawTrendChart() {
   const canvas = document.getElementById('chart-trend');
   if (!canvas) return;
@@ -1235,7 +1363,6 @@ function drawTrendChart() {
 
   ctx.clearRect(0, 0, W, H);
 
-  // Grid
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -1250,7 +1377,6 @@ function drawTrendChart() {
     ctx.fillText(Math.round(max * i / 4), pad.l - 4, y + 3);
   }
 
-  // Day labels
   const days = ['14d','13d','12d','11d','10d','9d','8d','7d','6d','5d','4d','3d','2d','1d'];
   data.forEach((_, i) => {
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
@@ -1261,7 +1387,6 @@ function drawTrendChart() {
 
   const pts = data.map((v, i) => [pad.l + i * step, pad.t + ch - (v / max) * ch]);
 
-  // Area fill
   const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
   grad.addColorStop(0, 'rgba(124,109,255,0.35)');
   grad.addColorStop(1, 'rgba(124,109,255,0)');
@@ -1273,7 +1398,6 @@ function drawTrendChart() {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Line
   ctx.beginPath();
   pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
   ctx.strokeStyle = '#7c6dff';
@@ -1281,7 +1405,6 @@ function drawTrendChart() {
   ctx.lineJoin = 'round';
   ctx.stroke();
 
-  // Dots
   pts.forEach(([x, y]) => {
     ctx.beginPath();
     ctx.arc(x, y, 3.5, 0, Math.PI * 2);
@@ -1293,15 +1416,12 @@ function drawTrendChart() {
   });
 }
 
-// ── Analytics Section ─────────────────────────
 function renderAnalytics() {
-  // Source bar
   const srcCounts = {};
   leads.forEach(l => srcCounts[l.source] = (srcCounts[l.source] || 0) + 1);
   const srcEntries = Object.entries(srcCounts).sort((a,b) => b[1]-a[1]).slice(0,8);
   drawBar('chart-source-bar', srcEntries.map(e=>e[0]), srcEntries.map(e=>e[1]), SOURCE_COLORS);
 
-  // Exec bar
   const active = executives.filter(e => e.active);
   drawBar('chart-exec-bar',
     active.map(e => e.name.split(' ')[0]),
@@ -1309,7 +1429,6 @@ function renderAnalytics() {
     ['#7c6dff','#34d399','#fbbf24','#f87171','#38b2ff','#c49bff','#ffaa3b','#81c784','#ff6b9d','#00c9a7']
   );
 
-  // Score distribution
   const buckets = { '80-100': 0, '60-79': 0, '40-59': 0, '0-39': 0 };
   leads.forEach(l => {
     const s = l.score;
@@ -1321,13 +1440,11 @@ function renderAnalytics() {
   drawBar('chart-score-bar', Object.keys(buckets), Object.values(buckets),
     ['#34d399','#a3e635','#fbbf24','#f87171']);
 
-  // Location bar
   const locCounts = {};
   leads.forEach(l => locCounts[l.location] = (locCounts[l.location] || 0) + 1);
   const locEntries = Object.entries(locCounts).sort((a,b) => b[1]-a[1]).slice(0,8);
   drawBar('chart-location-bar', locEntries.map(e=>e[0]), locEntries.map(e=>e[1]), SOURCE_COLORS.slice(4));
 
-  // Analytics stats row
   const totalScore = leads.reduce((s, l) => s + l.score, 0);
   const avgScore = leads.length ? Math.round(totalScore / leads.length) : 0;
   const hotAssigned = leads.filter(l => l.temperature === 'hot' && l.status === 'assigned').length;
@@ -1382,7 +1499,6 @@ function formatDateTime(d) {
   return d instanceof Date ? d.toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
 }
 
-// ── Navigation ───────────────────────────────
 function showSection(name) {
   document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1407,11 +1523,8 @@ function showSection(name) {
   return false;
 }
 
-// ── Toast ─────────────────────────────────────
 let _toastT;
 function showToast(title, body, borderColor = 'var(--accent-2)') {
-  // BUG FIX #9: use a proper emoji regex to extract the icon from multi-char emoji titles
-  // Matches emoji chars at start, then rest of string as label
   const emojiMatch = title.match(/^(\p{Emoji}+)/u);
   const icon  = emojiMatch ? emojiMatch[1] : '📌';
   const label = title.replace(/^(\p{Emoji}+\s*)/u, '') || title;
@@ -1424,7 +1537,6 @@ function showToast(title, body, borderColor = 'var(--accent-2)') {
   _toastT = setTimeout(() => document.getElementById('toast').classList.remove('show'), 4200);
 }
 
-// ── Live Clock ────────────────────────────────
 function updateClock() {
   const now = new Date();
   const el = document.getElementById('topbar-time');
@@ -1437,11 +1549,7 @@ function updateClock() {
 //  14. INITIALISATION
 // =============================================
 
-function init() {
-  SEED_LEADS.forEach(d => createLead(d));
-
-  renderAll();
-  showSection('dashboard');
+async function init() {
   updateClock();
   setInterval(updateClock, 1000);
 
@@ -1451,13 +1559,24 @@ function init() {
     renderAnalytics();
   });
 
-  // Console log
+  if (token) {
+    try {
+      document.getElementById('login-overlay').classList.add('hidden');
+      document.body.classList.remove('logged-out');
+      
+      applyRoleRestrictions();
+      await loadInitialData();
+    } catch (err) {
+      console.warn('Initial session validation failed:', err);
+      handleLogout();
+    }
+  } else {
+    document.getElementById('login-overlay').classList.remove('hidden');
+    document.body.classList.add('logged-out');
+  }
+
+  // Console log banner
   console.log('%c LeadFlow AI v2 ', 'background:#7c6dff;color:#fff;font-weight:bold;font-size:14px;border-radius:4px;padding:2px 8px;');
-  console.log('%c Assignment Engine Initialized', 'color:#7c6dff;font-size:12px;');
-  console.table(leads.map(l => ({
-    Name: l.name, Score: l.score, Temp: l.temperature,
-    Location: l.location, 'Assigned To': l.assignedTo || '—', Status: l.status
-  })));
 }
 
 document.addEventListener('DOMContentLoaded', init);

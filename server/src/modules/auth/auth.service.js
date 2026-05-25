@@ -55,7 +55,7 @@ function generateTokens(user) {
 async function login(email, password, meta = {}) {
   // 1. Find user by email
   const { rows } = await query(
-    `SELECT u.*, t.slug AS tenant_slug, t.plan AS tenant_plan
+    `SELECT u.*, t.slug AS tenant_slug, t.plan AS tenant_plan, t.settings AS tenant_settings
      FROM   users u
      JOIN   tenants t ON t.id = u.tenant_id
      WHERE  u.email = $1 AND u.active = TRUE
@@ -103,7 +103,8 @@ async function login(email, password, meta = {}) {
     tenantSlug:  user.tenant_slug,
     tenantPlan:  user.tenant_plan,
     avatar_url:  user.avatar_url,
-    active:      user.active
+    active:      user.active,
+    tenantSettings: user.tenant_settings
   };
 
   return { accessToken, refreshToken, user: safeUser };
@@ -254,7 +255,8 @@ async function getMe(userId) {
        u.avatar_url, u.locations, u.expertise, u.max_daily_capacity,
        u.success_rate, u.total_leads_alltime, u.whatsapp_number,
        u.created_at, u.last_login,
-       t.name AS tenant_name, t.slug AS tenant_slug, t.plan AS tenant_plan
+       t.name AS tenant_name, t.slug AS tenant_slug, t.plan AS tenant_plan,
+       t.settings AS tenant_settings
      FROM  users u
      JOIN  tenants t ON t.id = u.tenant_id
      WHERE u.id = $1`,

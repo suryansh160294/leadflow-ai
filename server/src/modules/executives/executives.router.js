@@ -127,4 +127,17 @@ router.post('/redistribute', requireRole(['admin']), async (req, res, next) => {
   }
 });
 
+// ─────────────────────────────────────────────
+//  POST /api/executives/reset-counters — Reset daily load counters (Admin only)
+// ─────────────────────────────────────────────
+router.post('/reset-counters', requireRole(['admin']), async (req, res, next) => {
+  try {
+    const { query } = require('../../config/db');
+    await query('DELETE FROM daily_counters WHERE tenant_id = $1 AND date = CURRENT_DATE', [req.user.tenantId]);
+    res.json({ message: 'Daily counters reset successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

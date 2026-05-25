@@ -1534,3 +1534,40 @@ form {
   .temp-selector { grid-template-columns: 1fr; }
   .slide-panel { width: 100%; }
 }
+
+/* ══════════════════════════════════════════════
+   LOGIN OVERLAY & SCREEN
+   ══════════════════════════════════════════════ */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(25px);
+  background: rgba(7, 11, 20, 0.65);
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+.login-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Logged-out layout overrides */
+body.logged-out .sidebar {
+  display: none !important;
+}
+body.logged-out .main-content {
+  margin-left: 0 !important;
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+body.logged-out .topbar {
+  left: 0 !important;
+  width: 100% !important;
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}

@@ -7,7 +7,7 @@
 
 const express      = require('express');
 const validate     = require('../../middleware/validate');
-const { authenticate } = require('../../middleware/auth');
+const { authenticate, requireRole } = require('../../middleware/auth');
 const authService  = require('./auth.service');
 const { loginSchema, refreshSchema, changePasswordSchema } = require('./auth.schema');
 
@@ -107,6 +107,21 @@ router.post('/logout', authenticate, async (req, res, next) => {
 
     res.clearCookie('refreshToken');
     res.json({ message: 'Logged out successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── 6. TENANT SETTINGS ─────────────────────────
+router.patch('/tenant/settings', authenticate, requireRole(['admin']), async (req, res, next) => {
+  try {
+    const { settings } = req.body;
+    const { query } = require('../../config/db');
+    const { rows } = await query(
+      'UPDATE tenants SET settings = settings || $1 WHERE id = $2 RETURNING settings',
+      [JSON.stringify(settings), req.user.tenantId]
+    );
+    res.json({ message: 'Settings updated successfully', settings: rows[0].settings });
   } catch (err) {
     next(err);
   }
